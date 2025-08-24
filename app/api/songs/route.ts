@@ -1,4 +1,5 @@
 import { NextRequest } from 'next/server'
+import { SOURCES, type SourceDef } from '@/lib/sources'
 
 export type Song = {
   id: number
@@ -41,55 +42,48 @@ function detectLanguage(title: string, artist: string): 'fr' | 'en' | 'other' {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const genreFilter = (searchParams.get('genre') as 'rap' | 'pop' | 'electro' | 'rock' | 'all' | null) || 'all'
-  const langFilter = (searchParams.get('lang') as 'fr' | 'en' | 'all' | null) || 'all'
+  const genreFilterParam = (searchParams.get('genre') as string | null) || 'all'
+  const langFilterParam = (searchParams.get('lang') as 'fr' | 'en' | 'other' | 'all' | null) || 'all'
 
-  // Build a song pool either from France charts or genre top artists
-  let baseSongs: Song[] = []
-  if (genreFilter && genreFilter !== 'all') {
-    baseSongs = await fetchGenreSongs(genreFilter)
-  } else {
-    baseSongs = await fetchFranceChartSongs()
+  // Aggregate from configured sources
+  const agg = await fetchFromSources(SOURCES)
+  const allSongs = dedupeById(agg.songs)
+
+  // Compute dynamic filters from sources
+  const availableGenres = Array.from(new Set(agg.genres)).sort()
+  const availableLangs = Array.from(new Set(agg.langs)) as Array<'fr' | 'en' | 'other'>
+
+  // Apply filters
+  let songs = allSongs.filter((s: Song) => (langFilterParam === 'all' ? true : s.language === langFilterParam))
+  if (genreFilterParam !== 'all') {
+    songs = songs.filter(s => s.genre?.toLowerCase() === genreFilterParam.toLowerCase())
   }
-
-  // Language filter
-  let songs = baseSongs.filter((s: Song) => (langFilter === 'all' ? true : s.language === langFilter))
 
   // Cap result size
   songs = songs.slice(0, 50)
 
-  return new Response(JSON.stringify({ songs }), { headers: { 'content-type': 'application/json' } })
+  return new Response(JSON.stringify({ songs, filters: { genres: availableGenres, languages: availableLangs } }), { headers: { 'content-type': 'application/json' } })
 }
 
-async function fetchFranceChartSongs(): Promise<Song[]> {
-  const res = await fetch('https://api.deezer.com/editorial/110/charts?limit=50', { cache: 'no-store' })
-  const json = await res.json()
-  const tracks: any[] = json?.tracks?.data || []
-  const songs = await enrichTracks(tracks)
-  return songs
-}
-
-async function fetchGenreSongs(genreKey: 'rap' | 'pop' | 'electro' | 'rock'): Promise<Song[]> {
-  const genreId = GENRE_NAME_TO_ID[genreKey]
-  const res = await fetch(`https://api.deezer.com/genre/${genreId}/artists`, { cache: 'no-store' })
-  const json = await res.json()
-  const artists: any[] = json?.data || []
-  const topArtists = artists.slice(0, 10)
-  const trackLists = await Promise.all(topArtists.map(async (a) => {
+async function fetchFromSources(sources: SourceDef[]): Promise<{ songs: Song[]; genres: string[]; langs: Array<'fr'|'en'|'other'> }> {
+  const outSongs: Song[] = []
+  const outGenres: string[] = []
+  const outLangs: Array<'fr'|'en'|'other'> = []
+  for (const src of sources) {
     try {
-      const r = await fetch(`https://api.deezer.com/artist/${a.id}/top?limit=5`, { cache: 'no-store' })
-      const j = await r.json()
-      return (j?.data || []) as any[]
-    } catch {
-      return []
+      const { tracks } = await resolveDeezerSource(src)
+      const songs = await enrichTracks(tracks, src)
+      outSongs.push(...songs)
+      outGenres.push(src.genre)
+      outLangs.push(src.language)
+    } catch (e) {
+      // ignore source errors to keep others working
     }
-  }))
-  const tracks = trackLists.flat()
-  const songs = await enrichTracks(tracks)
-  return songs
+  }
+  return { songs: outSongs, genres: outGenres, langs: outLangs }
 }
 
-async function enrichTracks(tracks: any[]): Promise<Song[]> {
+async function enrichTracks(tracks: any[], src?: SourceDef): Promise<Song[]> {
   // Gather unique album ids
   const albumIds = Array.from(new Set(tracks.map(t => t?.album?.id).filter(Boolean))) as number[]
   // Fetch album details in parallel (limit concurrency naive by slicing)
@@ -122,14 +116,50 @@ async function enrichTracks(tracks: any[]): Promise<Song[]> {
       artist,
       album: albumTitle,
       year: extra?.year,
-      genre: extra?.genre,
+      genre: src?.genre || extra?.genre,
       length,
       preview,
       cover,
-      language: detectLanguage(title, artist)
+      language: src?.language || detectLanguage(title, artist)
     }
   })
   .filter((s: Song) => Boolean(s.preview))
 
   return songs
+}
+
+function dedupeById(songs: Song[]): Song[] {
+  const seen = new Set<number>()
+  const res: Song[] = []
+  for (const s of songs) {
+    if (!seen.has(s.id)) {
+      seen.add(s.id)
+      res.push(s)
+    }
+  }
+  return res
+}
+
+async function resolveDeezerSource(src: SourceDef): Promise<{ tracks: any[] }> {
+  // Accept API URLs or web URLs and map to API endpoints
+  let apiUrl = src.url
+  const mEditorial = src.url.match(/editorial\/(\d+)\/charts/)
+  const mPlaylist = src.url.match(/playlist\/(\d+)/)
+  if (mEditorial) {
+    apiUrl = `https://api.deezer.com/editorial/${mEditorial[1]}/charts?limit=${src.limit || 50}`
+    const res = await fetch(apiUrl, { cache: 'no-store' })
+    const json = await res.json()
+    return { tracks: json?.tracks?.data || [] }
+  }
+  if (mPlaylist) {
+    const id = mPlaylist[1]
+    const res = await fetch(`https://api.deezer.com/playlist/${id}`, { cache: 'no-store' })
+    const json = await res.json()
+    return { tracks: json?.tracks?.data || [] }
+  }
+  // Fallback: try as-is expecting a track list
+  const res = await fetch(apiUrl, { cache: 'no-store' })
+  const json = await res.json()
+  const tracks = json?.tracks?.data || json?.data || []
+  return { tracks }
 }
