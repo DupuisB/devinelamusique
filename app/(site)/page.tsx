@@ -464,7 +464,7 @@ function DailyGame() {
   {/* Result section moved to top */}
 
       <footer style={{ marginTop: 48, textAlign: 'center', opacity: 0.7 }}>
-        Jour #{dayNumber} · {formatDateUTC(dayNumberToDate(dayNumber))} · Sources: Deezer charts/playlists. Préviews 30s Deezer.
+        Jour #{dayNumber} · {formatDateUTC(dayNumberToDate(dayNumber))} · Utilise l'API Deezer.
       </footer>
     </main>
   )
