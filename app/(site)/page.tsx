@@ -52,6 +52,7 @@ function DailyGame() {
   const audioRef = useRef<HTMLAudioElement>(null)
   const onTimeHandlerRef = useRef<((e: Event) => void) | null>(null)
   const [playhead, setPlayhead] = useState(0) // seconds within current snippet
+  const [isPlaying, setIsPlaying] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const noticeTimerRef = useRef<number | null>(null)
   const loggedSummaryRef = useRef(false)
@@ -69,6 +70,7 @@ function DailyGame() {
       setQuery('')
       if (audioRef.current) audioRef.current.pause()
       setPlayhead(0)
+  setIsPlaying(false)
     }
   }, [daily?.song])
 
@@ -151,15 +153,23 @@ function DailyGame() {
     }
   }, [round.answer?.id, round.attempts, round.revealIndex, round.snippetIndex, round.status, dayNumber, lang])
 
-  function play() {
+  function togglePlay() {
     if (!round.answer) return
     const audio = audioRef.current
     if (!audio) return
-    audio.src = round.answer.preview
-    audio.currentTime = 0
-    setPlayhead(0)
-    // Limit playback length by stopping after X seconds
-  const duration = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
+    const duration = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
+    // If currently playing, pause
+    if (!audio.paused) {
+      audio.pause()
+      setIsPlaying(false)
+      return
+    }
+    // Ensure source is correct
+    if (audio.src !== round.answer.preview) {
+      audio.src = round.answer.preview
+      audio.currentTime = 0
+      setPlayhead(0)
+    }
     // Clean prev handler if any
     if (onTimeHandlerRef.current) {
       audio.removeEventListener('timeupdate', onTimeHandlerRef.current)
@@ -171,11 +181,13 @@ function DailyGame() {
         audio.pause()
         audio.removeEventListener('timeupdate', onTime)
         onTimeHandlerRef.current = null
+        setIsPlaying(false)
       }
     }
     onTimeHandlerRef.current = onTime
     audio.addEventListener('timeupdate', onTime)
     audio.play()
+    setIsPlaying(true)
   }
 
   function submitGuess(guess: Song) {
@@ -183,7 +195,10 @@ function DailyGame() {
     const correct = normalize(guess.title) === normalize(round.answer.title) && normalize(guess.artist) === normalize(round.answer.artist)
     const nextAttempts = [...round.attempts, `${guess.title} — ${guess.artist}`]
     if (correct) {
-  setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, status: 'won' }))
+      setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, status: 'won' }))
+      const audio = audioRef.current
+      if (audio) audio.pause()
+      setIsPlaying(false)
       setPlayhead(0)
       return
     }
@@ -201,13 +216,14 @@ function DailyGame() {
   function skipAttempt() {
     if (!round.answer || round.status === 'won' || round.status === 'lost') return
     const audio = audioRef.current
-    if (audio) audio.pause()
+  if (audio) audio.pause()
     const nextAttempts = [...round.attempts, '⏭️ Passé']
   const nextReveal = Math.min(round.revealIndex + 1, 4)
   const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
     setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
   setPlayhead(0)
+  setIsPlaying(false)
   }
 
   function forfeitRound() {
@@ -222,6 +238,7 @@ function DailyGame() {
   snippetIndex: SNIPPET_SECONDS.length - 1
     }))
   setPlayhead(0)
+  setIsPlaying(false)
   }
 
   function resetRound() {
@@ -231,6 +248,7 @@ function DailyGame() {
     setQuery('')
     if (audioRef.current) audioRef.current.pause()
     setPlayhead(0)
+  setIsPlaying(false)
   }
 
   function gotoDay(n: number) {
@@ -277,8 +295,8 @@ function DailyGame() {
           display: 'grid',
           placeItems: 'center',
           padding: 16,
-          background: 'linear-gradient(180deg, #161616, #121212)',
-          border: '1px solid #2a2a2a',
+          background: round.status === 'won' ? 'linear-gradient(180deg, #143d1b, #0f2f15)' : 'linear-gradient(180deg, #161616, #121212)',
+          border: `1px solid ${round.status === 'won' ? '#2e6b3a' : '#2a2a2a'}`,
           borderRadius: 16,
           boxShadow: '0 8px 32px rgba(0,0,0,0.35)'
         }}>
@@ -359,7 +377,7 @@ function DailyGame() {
       )}
 
       <section style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={play} style={{ ...buttonStyle, fontSize: 18 }}>▶️ Écouter l'extrait</button>
+  <button onClick={togglePlay} style={{ ...buttonStyle, fontSize: 18 }}>{isPlaying ? '⏸️ Pause' : "▶️ Écouter l'extrait"}</button>
         <button onClick={skipAttempt} style={{ ...buttonStyle }}>⏭️ Passer</button>
         <button onClick={forfeitRound} style={{ ...buttonStyle }}>Abandonner</button>
   <span style={{ marginLeft: 8, fontSize: 14, opacity: 0.8 }}>({round.attempts.length}/6)</span>
@@ -433,7 +451,9 @@ function DailyGame() {
             const hasArtistMatch = Boolean(txt) && !isSkip && round.answer && normalize(guessedArtist) === normalize(round.answer.artist)
             const isWrong = Boolean(txt) && !isSkip && round.answer && !isFullCorrect && !hasArtistMatch
             let style: React.CSSProperties = attemptBox
-            if (isWrong) {
+            if (isFullCorrect) {
+              style = { ...attemptBox, background: '#163a22', borderColor: '#2f7a4a', color: '#c6f5d8' }
+            } else if (isWrong) {
               style = { ...attemptBox, background: '#2a1515', borderColor: '#7a2a2a', color: '#f5c6c6' }
             } else if (hasArtistMatch && !isFullCorrect) {
               style = { ...attemptBox, background: '#3a3415', borderColor: '#8a7a2a', color: '#f7e7a3' }
