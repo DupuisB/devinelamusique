@@ -1,47 +1,30 @@
+import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT } from '@/lib/config'
+
 export type SourceDef = {
   id: string
   provider: 'deezer'
-  type: 'editorial_charts' | 'playlist' | 'chart'
+  type: 'playlist'
   url: string
-  language: 'fr' | 'en' | 'other'
-  genre: string
+  language: 'fr' | 'en'
   limit?: number
 }
 
-// Edit this list to control which charts/playlists are used.
-// You can paste Deezer URLs (web or API); we will detect kind and IDs automatically.
+// Sources driven by config (no genres)
 export const SOURCES: SourceDef[] = [
   {
-    id: 'playlist-11928321221-rap-fr',
+    id: 'playlist-fr',
     provider: 'deezer',
     type: 'playlist',
-    url: 'https://www.deezer.com/fr/playlist/11928321221',
+    url: FR_PLAYLIST_URL,
     language: 'fr',
-    genre: 'rap',
+    limit: PLAYLIST_FETCH_LIMIT,
   },
   {
-    id: 'playlist-4676818664-rap-en',
+    id: 'playlist-en',
     provider: 'deezer',
     type: 'playlist',
-    url: 'https://www.deezer.com/fr/playlist/4676818664',
+    url: EN_PLAYLIST_URL,
     language: 'en',
-    genre: 'rap',
+    limit: PLAYLIST_FETCH_LIMIT,
   },
-  {
-    id: 'playlist-1189520191-pop-fr',
-    provider: 'deezer',
-    type: 'playlist',
-    url: 'https://www.deezer.com/fr/playlist/1189520191',
-    language: 'fr',
-    genre: 'pop',
-  },
-  {
-    id: 'playlist-7873409502-pop-en',
-    provider: 'deezer',
-    type: 'playlist',
-    url: 'https://www.deezer.com/fr/playlist/7873409502',
-    language: 'en',
-    genre: 'pop',
-  },
-
 ]

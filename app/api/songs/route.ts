@@ -7,29 +7,11 @@ export type Song = {
   artist: string
   album: string
   year?: number
-  genre?: string
   length?: number
   cover?: string
   preview: string
   language?: 'fr' | 'en' | 'other'
   sourceId?: string
-}
-
-const GENRE_NAME_TO_ID: Record<string, number> = {
-  rap: 116, // Hip-Hop/Rap
-  pop: 132,
-  electro: 106,
-  rock: 152,
-}
-
-function mapDeezerGenreName(name?: string): string | undefined {
-  if (!name) return undefined
-  const g = name.toLowerCase()
-  if (g.includes('hip') || g.includes('rap')) return 'rap'
-  if (g.includes('pop')) return 'pop'
-  if (g.includes('electro') || g.includes('dance') || g.includes('house')) return 'electro'
-  if (g.includes('rock')) return 'rock'
-  return name
 }
 
 function detectLanguage(title: string, artist: string): 'fr' | 'en' | 'other' {
@@ -43,22 +25,16 @@ function detectLanguage(title: string, artist: string): 'fr' | 'en' | 'other' {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  const genreFilterParam = (searchParams.get('genre') as string | null) || 'all'
   const langFilterParam = (searchParams.get('lang') as 'fr' | 'en' | 'other' | 'all' | null) || 'all'
 
   // Aggregate from configured sources
   const agg = await fetchFromSources(SOURCES)
   const allSongs = dedupeById(agg.songs)
 
-  // Compute dynamic filters from sources
-  const availableGenres = Array.from(new Set(agg.genres)).sort()
   const availableLangs = Array.from(new Set(agg.langs)) as Array<'fr' | 'en' | 'other'>
 
   // Apply filters
-  let filtered = allSongs.filter((s: Song) => (langFilterParam === 'all' ? true : s.language === langFilterParam))
-  if (genreFilterParam !== 'all') {
-    filtered = filtered.filter((s: Song) => s.genre?.toLowerCase() === genreFilterParam.toLowerCase())
-  }
+  const filtered = allSongs.filter((s: Song) => (langFilterParam === 'all' ? true : s.language === langFilterParam))
 
   // Fairly interleave songs across sources then cap
   const MAX = 200
@@ -81,36 +57,33 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  return new Response(JSON.stringify({ songs, filters: { genres: availableGenres, languages: availableLangs }, debug: { stats: agg.stats } }), { headers: { 'content-type': 'application/json' } })
+  return new Response(JSON.stringify({ songs, filters: { languages: availableLangs }, debug: { stats: agg.stats } }), { headers: { 'content-type': 'application/json' } })
 }
 
-async function fetchFromSources(sources: SourceDef[]): Promise<{ songs: Song[]; genres: string[]; langs: Array<'fr'|'en'|'other'>; stats: Array<{ id: string; genre: string; language: string; fetched: number; kept: number }> }> {
+async function fetchFromSources(sources: SourceDef[]): Promise<{ songs: Song[]; langs: Array<'fr'|'en'|'other'>; stats: Array<{ id: string; language: string; fetched: number; kept: number }> }> {
   const outSongs: Song[] = []
-  const outGenres: string[] = []
   const outLangs: Array<'fr'|'en'|'other'> = []
-  const stats: Array<{ id: string; genre: string; language: string; fetched: number; kept: number }> = []
+  const stats: Array<{ id: string; language: string; fetched: number; kept: number }> = []
   for (const src of sources) {
     try {
       const { tracks } = await resolveDeezerSource(src)
       const songs = await enrichTracks(tracks, src)
       outSongs.push(...songs)
-      outGenres.push(src.genre)
       outLangs.push(src.language)
-      stats.push({ id: src.id, genre: src.genre, language: src.language, fetched: tracks.length, kept: songs.length })
+      stats.push({ id: src.id, language: src.language, fetched: tracks.length, kept: songs.length })
     } catch (e) {
       // ignore source errors to keep others working
     }
     // Gentle delay to mitigate Deezer rate limiting across sources
     await sleep(350)
   }
-  return { songs: outSongs, genres: outGenres, langs: outLangs, stats }
+  return { songs: outSongs, langs: outLangs, stats }
 }
 
 async function enrichTracks(tracks: any[], src?: SourceDef): Promise<Song[]> {
   const songs: Song[] = tracks.map((t: any) => {
     const title: string = t?.title_short || t?.title
     const artist: string = t?.artist?.name
-    const albumId: number | undefined = t?.album?.id
     const albumTitle: string = t?.album?.title
     const length: number | undefined = typeof t?.duration === 'number' ? t.duration : undefined
     const preview: string = t?.preview
@@ -122,7 +95,6 @@ async function enrichTracks(tracks: any[], src?: SourceDef): Promise<Song[]> {
       artist,
       album: albumTitle,
       year: undefined,
-      genre: src?.genre,
       length,
       preview,
       cover,
@@ -150,13 +122,7 @@ function dedupeById(songs: Song[]): Song[] {
 async function resolveDeezerSource(src: SourceDef): Promise<{ tracks: any[] }> {
   // Accept API URLs or web URLs and map to API endpoints
   let apiUrl = src.url
-  const mEditorial = src.url.match(/editorial\/(\d+)\/charts/)
   const mPlaylist = src.url.match(/playlist\/(\d+)/)
-  if (mEditorial) {
-  apiUrl = `https://api.deezer.com/editorial/${mEditorial[1]}/charts?limit=${src.limit || 200}`
-  const json = await fetchJsonRetry(apiUrl)
-    return { tracks: json?.tracks?.data || [] }
-  }
   if (mPlaylist) {
     const id = mPlaylist[1]
   const json = await fetchJsonRetry(`https://api.deezer.com/playlist/${id}`)

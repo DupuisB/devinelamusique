@@ -10,7 +10,7 @@ Fonctionnalités clés
 - Données dynamiques depuis Deezer (charts France + tops genre) avec previews 30s
 - Responsive, style minimal inspiré Wordle
 
-Technique
+Techniques
 - Next.js 14 (App Router), TypeScript, SWR, Fuse.js
 - API route `/api/songs` qui agrège Deezer et enrichit année/genre via les albums
 

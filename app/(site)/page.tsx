@@ -1,10 +1,13 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import useSWR from 'swr'
 import useSWRImmutable from 'swr/immutable'
-import Fuse from 'fuse.js'
-import type { FuseResult } from 'fuse.js'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { START_DATE_UTC, SNIPPET_SECONDS, TRACK_LENGTH } from '@/lib/config'
+
+// Avoid static prerender conflicts; this page is client-driven and depends on search params.
+export const dynamic = 'force-dynamic'
 
 export type Song = {
   id: number
@@ -29,15 +32,17 @@ type RoundState = {
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-type ApiResponse = { songs: Song[]; filters?: { genres?: string[]; languages?: Array<'fr'|'en'|'other'> } }
+type ApiResponse = { songs: Song[]; filters?: { languages?: Array<'fr'|'en'|'other'> } }
+type DailyResponse = { song: Song; n: number; date: string; lang?: 'fr' | 'en' }
 
-export default function HomePage() {
-  const [genre, setGenre] = useState<string>('all')
-  const [lang, setLang] = useState<'all' | 'fr' | 'en' | 'other'>('all')
-  const { data, isLoading } = useSWR<ApiResponse>(`/api/songs?${new URLSearchParams({
-    ...(genre !== 'all' ? { genre } : {}),
-    ...(lang !== 'all' ? { lang } : {})
-  })}`,
+function DailyGame() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const paramNRaw = searchParams?.get('n')
+  const paramLang = (searchParams?.get('lang') || 'fr').toLowerCase()
+  const lang = (paramLang === 'en' ? 'en' : 'fr') as 'fr' | 'en'
+  const queryParams = new URLSearchParams({ ...(paramNRaw ? { n: String(paramNRaw) } : {}), lang })
+  const { data: daily, isLoading } = useSWR<DailyResponse>(`/api/daily?${queryParams.toString()}`,
     fetcher,
     { revalidateOnFocus: false }
   )
@@ -51,48 +56,21 @@ export default function HomePage() {
   const noticeTimerRef = useRef<number | null>(null)
   const loggedSummaryRef = useRef(false)
 
-  const songs = data?.songs ?? []
-  const availableGenres: string[] = useMemo(() => ['all', ...Array.from(new Set(data?.filters?.genres ?? []))], [data])
-  const availableLangs: Array<'all'|'fr'|'en'|'other'> = useMemo(() => ['all', ...Array.from(new Set((data?.filters?.languages ?? []) as Array<'fr'|'en'|'other'>))], [data])
+  const dayNumber = daily?.n || dateToDayNumber(new Date())
+  const todayN = dateToDayNumber(new Date())
+  const songs = daily?.song ? [daily.song] : []
 
-  // One-time log of catalogue summary in console on first load
-  useEffect(() => {
-    if (!songs.length || loggedSummaryRef.current) return
-    const byGenre = new Map<string, number>()
-    const byLang = new Map<string, number>()
-    for (const s of songs) {
-      const g = (s.genre || 'unknown').toLowerCase()
-      const l = (s.language || 'unknown').toLowerCase()
-      byGenre.set(g, (byGenre.get(g) || 0) + 1)
-      byLang.set(l, (byLang.get(l) || 0) + 1)
-    }
-    const obj = (m: Map<string, number>) => Object.fromEntries(Array.from(m.entries()).sort((a,b) => a[0].localeCompare(b[0])))
-    // eslint-disable-next-line no-console
-    console.group('Catalogue summary')
-    // eslint-disable-next-line no-console
-    console.log('Total songs:', songs.length)
-    // eslint-disable-next-line no-console
-    console.log('By genre:', obj(byGenre))
-    // eslint-disable-next-line no-console
-    console.log('By language:', obj(byLang))
-    if ((data as any)?.debug?.stats) {
-      console.log('Per-source:', (data as any).debug.stats)
-    }
-    // eslint-disable-next-line no-console
-    console.groupEnd()
-    loggedSummaryRef.current = true
-  }, [songs])
+  // Skip catalogue summary in daily mode
 
-  // pick a random answer when songs load or filters change
+  // Set server-provided daily answer
   useEffect(() => {
-    if (songs.length) {
-      const answer = songs[Math.floor(Math.random() * songs.length)]
-  setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer })
+    if (daily?.song) {
+      setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: daily.song })
       setQuery('')
       if (audioRef.current) audioRef.current.pause()
-  setPlayhead(0)
+      setPlayhead(0)
     }
-  }, [data])
+  }, [daily?.song])
 
   function showNotice(msg: string, ms = 2200) {
     setNotice(msg)
@@ -106,29 +84,16 @@ export default function HomePage() {
     }, ms)
   }
 
-  // Notify when a new song is selected, show selected genre/lang only (use 'all' when not selected)
+  // Notify when a new day's puzzle is loaded
   useEffect(() => {
     if (!round.answer) return
-    const g = genre || 'all'
-    const l = lang || 'all'
-    const parts = [`genre: ${g}`, `langue: ${l}`]
-    const msg = `Nouvelle chanson chargée · ${parts.join(', ')}`
+  const msg = `Morceau du jour · #${dayNumber} · ${daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}`
     showNotice(msg)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round.answer, genre, lang])
+  }, [round.answer, dayNumber])
 
-  const fuse = useMemo(() => new Fuse(songs, {
-    keys: [
-      { name: 'title', weight: 0.6 },
-      { name: 'artist', weight: 0.4 }
-    ],
-    threshold: 0.3
-  }), [songs])
-
-  const localSuggestions = useMemo<Song[]>(() => {
-    if (!query.trim()) return [] as Song[]
-    return fuse.search(query).slice(0, 6).map((r: FuseResult<Song>) => r.item)
-  }, [query, fuse])
+  // Disable local suggestions (avoid leaking the daily answer via local dataset)
+  const localSuggestions: Song[] = []
 
   const { data: remote, error: remoteErr } = useSWRImmutable(
     query.trim().length >= 2 ? `/api/search?${new URLSearchParams({ q: query.trim(), limit: '6' })}` : null,
@@ -138,20 +103,53 @@ export default function HomePage() {
   const remoteSuggestions = (remote?.suggestions as RemoteSuggestion[] | undefined) ?? []
 
   const suggestions = useMemo<Song[]>(() => {
-    const map = new Map<string, Song>()
-    const key = (t: { title: string; artist: string }) => `${t.title}__${t.artist}`.toLowerCase()
-    for (const s of localSuggestions) map.set(key(s), s)
-    for (const r of remoteSuggestions) {
-      const k = key(r)
-      if (!map.has(k)) map.set(k, { id: r.id, title: r.title, artist: r.artist, album: '', preview: '', language: undefined })
-    }
-    return Array.from(map.values()).slice(0, 10)
-  }, [localSuggestions, remoteSuggestions])
+    return (remoteSuggestions || []).slice(0, 10).map((r: any) => ({ id: r.id, title: r.title, artist: r.artist, album: '', preview: '', language: undefined }))
+  }, [remoteSuggestions])
 
-  const snippetSecondsByAttempt = [0.5, 1, 2, 4, 8, 15]
-  const snippetLimit = snippetSecondsByAttempt[Math.min(round.snippetIndex, snippetSecondsByAttempt.length - 1)]
-  const trackLength = 30
+  const snippetLimit = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
+  const trackLength = TRACK_LENGTH
   const snippetLimitClamped = Math.min(snippetLimit, trackLength)
+
+  // Persist per-day+lang progress in localStorage
+  useEffect(() => {
+    if (!round.answer) return
+    const key = storageKeyForDay(dayNumber, lang)
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw) {
+        const parsed = JSON.parse(raw)
+        if (parsed && parsed.answerId === round.answer.id) {
+          setRound((r: RoundState) => ({
+            ...r,
+            attempts: Array.isArray(parsed.attempts) ? parsed.attempts.slice(0, 6) : [],
+            revealIndex: Number.isFinite(parsed.revealIndex) ? Math.min(parsed.revealIndex, 4) : -1,
+            snippetIndex: Number.isFinite(parsed.snippetIndex) ? Math.min(parsed.snippetIndex, SNIPPET_SECONDS.length - 1) : 0,
+            status: parsed.status === 'won' || parsed.status === 'lost' ? parsed.status : 'idle',
+          }))
+        }
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [round.answer?.id, dayNumber])
+
+  useEffect(() => {
+    if (!round.answer) return
+    const key = storageKeyForDay(dayNumber, lang)
+    try {
+      const payload = {
+        answerId: round.answer.id,
+        attempts: round.attempts,
+        revealIndex: round.revealIndex,
+        snippetIndex: round.snippetIndex,
+        status: round.status,
+      }
+      localStorage.setItem(key, JSON.stringify(payload))
+    } catch {
+      // ignore
+    }
+  }, [round.answer?.id, round.attempts, round.revealIndex, round.snippetIndex, round.status, dayNumber, lang])
 
   function play() {
     if (!round.answer) return
@@ -161,7 +159,7 @@ export default function HomePage() {
     audio.currentTime = 0
     setPlayhead(0)
     // Limit playback length by stopping after X seconds
-    const duration = snippetSecondsByAttempt[Math.min(round.snippetIndex, snippetSecondsByAttempt.length - 1)]
+  const duration = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
     // Clean prev handler if any
     if (onTimeHandlerRef.current) {
       audio.removeEventListener('timeupdate', onTimeHandlerRef.current)
@@ -190,7 +188,7 @@ export default function HomePage() {
       return
     }
   const nextReveal = Math.min(round.revealIndex + 1, 4)
-    const nextSnippet = Math.min(round.snippetIndex + 1, snippetSecondsByAttempt.length - 1)
+  const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
   setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
     setPlayhead(0)
@@ -206,7 +204,7 @@ export default function HomePage() {
     if (audio) audio.pause()
     const nextAttempts = [...round.attempts, '⏭️ Passé']
   const nextReveal = Math.min(round.revealIndex + 1, 4)
-    const nextSnippet = Math.min(round.snippetIndex + 1, snippetSecondsByAttempt.length - 1)
+  const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
     setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
   setPlayhead(0)
@@ -221,18 +219,33 @@ export default function HomePage() {
       ...r,
       status: 'lost',
       revealIndex: 4,
-      snippetIndex: snippetSecondsByAttempt.length - 1
+  snippetIndex: SNIPPET_SECONDS.length - 1
     }))
   setPlayhead(0)
   }
 
   function resetRound() {
-    if (!songs.length) return
-    const answer = songs[Math.floor(Math.random() * songs.length)]
-  setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer })
+    if (!round.answer) return
+    // Reset attempts for the same daily song
+    setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: round.answer })
     setQuery('')
     if (audioRef.current) audioRef.current.pause()
-  setPlayhead(0)
+    setPlayhead(0)
+  }
+
+  function gotoDay(n: number) {
+    if (n < 1) n = 1
+    const clamped = Math.min(n, todayN)
+    const sp = new URLSearchParams()
+    sp.set('n', String(clamped))
+  sp.set('lang', lang)
+  router.push(`?${sp.toString()}`)
+  }
+
+  function gotoToday() {
+    const n = todayN
+  const sp = new URLSearchParams({ n: String(n), lang })
+  router.push(`?${sp.toString()}`)
   }
 
   function formatDuration(seconds: number) {
@@ -245,9 +258,8 @@ export default function HomePage() {
   }
 
   const hintList = [
-  round.answer?.length ? formatDuration(round.answer.length) : '—',
+    round.answer?.length ? formatDuration(round.answer.length) : '—',
     round.answer?.year ? String(round.answer?.year) : '—',
-    round.answer?.genre || '—',
     round.answer?.album || '—',
     round.answer?.artist || '—',
   ]
@@ -259,20 +271,55 @@ export default function HomePage() {
         <div style={noticeStyle}>{notice}</div>
       )}
 
-  {/* Result banner moved below filter section */}
+      {/* Daily header (big number + date) with navigation and language toggle */}
+      <section style={{ marginBottom: 12 }}>
+        <div style={{
+          display: 'grid',
+          placeItems: 'center',
+          padding: 16,
+          background: 'linear-gradient(180deg, #161616, #121212)',
+          border: '1px solid #2a2a2a',
+          borderRadius: 16,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.35)'
+        }}>
+          <div style={{
+            fontSize: 'clamp(40px, 7vw, 72px)',
+            lineHeight: 1,
+            fontWeight: 900,
+            letterSpacing: 0.5,
+            textShadow: '0 2px 16px rgba(0,0,0,0.35)'
+          }}>#{dayNumber}</div>
+          <div style={{
+            marginTop: 6,
+            fontSize: 'clamp(14px, 2.5vw, 22px)',
+            opacity: 0.9
+          }}>{daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            <button
+              onClick={() => router.push(`?${new URLSearchParams({ n: String(dayNumber), lang: 'fr' })}`)}
+              style={{
+                ...buttonStyle,
+                background: lang === 'fr' ? '#2b3f5a' : '#222',
+                borderColor: lang === 'fr' ? '#4a78b7' : '#333'
+              }}
+            >FR</button>
+            <button
+              onClick={() => router.push(`?${new URLSearchParams({ n: String(dayNumber), lang: 'en' })}`)}
+              style={{
+                ...buttonStyle,
+                background: lang === 'en' ? '#2b3f5a' : '#222',
+                borderColor: lang === 'en' ? '#4a78b7' : '#333'
+              }}
+            >EN</button>
+          </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+          <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{'<' } Jour préc.</button>
+          <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>Jour suiv. {'>'}</button>
+          <button onClick={gotoToday} style={buttonStyle}>Aujourd'hui</button>
+          <button onClick={resetRound} style={buttonStyle}>Rejouer</button>
+        </div>
+        </div>
 
-      <section style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        <select value={genre} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setGenre(e.target.value)} style={selectStyle}>
-          {availableGenres.map(g => (
-            <option key={g} value={g}>{g === 'all' ? 'Tous genres' : g}</option>
-          ))}
-        </select>
-        <select value={lang} onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setLang(e.target.value as 'all' | 'fr' | 'en' | 'other')} style={selectStyle}>
-          {availableLangs.map(l => (
-            <option key={l} value={l}>{l === 'all' ? 'Toutes langues' : l.toUpperCase()}</option>
-          ))}
-        </select>
-        <button onClick={resetRound} style={buttonStyle}>Nouvelle chanson</button>
       </section>
 
       {(round.status === 'won' || round.status === 'lost') && (
@@ -403,11 +450,11 @@ export default function HomePage() {
       <section style={{ marginTop: 16 }}>
         <h3>Indications</h3>
         <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 6 }}>
-          {hintList.map((h, i) => {
+      {hintList.map((h, i) => {
             const visible = i <= round.revealIndex
             return (
               <li key={i} style={{ ...hintItem, opacity: visible ? 1 : 0.3 }}>
-                {['Durée', 'Année', 'Genre', 'Album', 'Artiste'][i]}: {visible ? h : '…'}
+        {['Durée', 'Année', 'Album', 'Artiste'][i]}: {visible ? h : '…'}
               </li>
             )
           })}
@@ -417,9 +464,17 @@ export default function HomePage() {
   {/* Result section moved to top */}
 
       <footer style={{ marginTop: 48, textAlign: 'center', opacity: 0.7 }}>
-        Sources: Deezer charts France. Préviews 30s Deezer. Projet démo.
+        Jour #{dayNumber} · {formatDateUTC(dayNumberToDate(dayNumber))} · Sources: Deezer charts/playlists. Préviews 30s Deezer.
       </footer>
     </main>
+  )
+}
+
+export default function HomePage() {
+  return (
+    <Suspense fallback={<main style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}><h1 style={{ textAlign: 'center', marginTop: 16 }}>Devine la Musique</h1><div style={{ textAlign: 'center', opacity: 0.7, marginTop: 12 }}>Chargement…</div></main>}>
+      <DailyGame />
+    </Suspense>
   )
 }
 
@@ -440,10 +495,6 @@ const buttonStyle: React.CSSProperties = {
   background: '#222',
   color: '#eee',
   cursor: 'pointer'
-}
-
-const selectStyle: React.CSSProperties = {
-  ...buttonStyle,
 }
 
 const suggestionsBox: React.CSSProperties = {
@@ -498,4 +549,39 @@ const noticeStyle: React.CSSProperties = {
   maxWidth: '90vw',
   textAlign: 'center',
   pointerEvents: 'none',
+}
+
+// ===== Daily utilities =====
+const ORIGIN_UTC = new Date(START_DATE_UTC + 'T00:00:00Z')
+
+function startOfDayUTC(d: Date) {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+}
+
+function dateToDayNumber(d: Date): number {
+  const date = startOfDayUTC(d)
+  const ms = date.getTime() - ORIGIN_UTC.getTime()
+  return Math.floor(ms / 86400000) + 1
+}
+
+function dayNumberToDate(n: number): Date {
+  const ms = (n - 1) * 86400000
+  return new Date(ORIGIN_UTC.getTime() + ms)
+}
+
+function formatDateUTC(d: Date): string {
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function isValidISODate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
+  const d = new Date(s + 'T00:00:00Z')
+  return !isNaN(d.getTime())
+}
+
+function storageKeyForDay(n: number, lang: 'fr' | 'en') {
+  return `dlm_daily_${lang}_${n}`
 }
