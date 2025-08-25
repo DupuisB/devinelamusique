@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server'
 import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC } from '@/lib/config'
 
+// Reset offset in hours (UTC+2)
+const RESET_OFFSET_HOURS = 2
+
 export type Song = {
   id: number
   title: string
@@ -43,7 +46,8 @@ export async function GET(req: NextRequest) {
   // i-th day gets i-th track (wrap if beyond length)
   const idx = ((n - 1) % merged.length + merged.length) % merged.length
   const song = merged[idx]
-  return json({ song, n, date: dayNumberToDateUTC(n, START_DATE_UTC).toISOString().slice(0, 10), lang: lang === 'all' ? song.language : lang })
+  const dateStr = formatDateUTCPlusOffset(dayNumberToDateUTC(n, START_DATE_UTC))
+  return json({ song, n, date: dateStr, lang: lang === 'all' ? song.language : lang })
 }
 
 function json(obj: any, status = 200) {
@@ -94,8 +98,18 @@ function dedupeById<T extends { id: number }>(arr: T[]): T[] {
   return out
 }
 
-function startOfDayUTC(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+function startOfDayWithOffset(d: Date, offsetHours = RESET_OFFSET_HOURS) {
+  // We shift the timestamp forward by the offset so the UTC date components
+  // correspond to the local date in the target timezone, compute UTC midnight
+  // for that local date, then shift back to get the UTC timestamp that equals
+  // the local day's start.
+  const offsetMs = offsetHours * 3600000
+  const shifted = new Date(d.getTime() + offsetMs)
+  const y = shifted.getUTCFullYear()
+  const m = shifted.getUTCMonth()
+  const day = shifted.getUTCDate()
+  const ms = Date.UTC(y, m, day) - offsetMs
+  return new Date(ms)
 }
 
 function parseStartDateUTC(s: string): Date {
@@ -103,16 +117,22 @@ function parseStartDateUTC(s: string): Date {
 }
 
 function dateToDayNumberUTC(d: Date, originISO: string): number {
-  const origin = startOfDayUTC(parseStartDateUTC(originISO))
-  const day = startOfDayUTC(d)
+  const origin = startOfDayWithOffset(parseStartDateUTC(originISO))
+  const day = startOfDayWithOffset(d)
   const ms = day.getTime() - origin.getTime()
   return Math.floor(ms / 86400000) + 1
 }
 
 function dayNumberToDateUTC(n: number, originISO: string): Date {
-  const origin = startOfDayUTC(parseStartDateUTC(originISO))
+  const origin = startOfDayWithOffset(parseStartDateUTC(originISO))
   const ms = (n - 1) * 86400000
   return new Date(origin.getTime() + ms)
+}
+
+function formatDateUTCPlusOffset(d: Date, offsetHours = RESET_OFFSET_HOURS) {
+  // Return YYYY-MM-DD for the date in the target timezone (UTC+offset)
+  const shifted = new Date(d.getTime() + offsetHours * 3600000)
+  return shifted.toISOString().slice(0, 10)
 }
 
 async function fetchJsonRetry(url: string, init?: RequestInit, tries = 3, backoffMs = 250): Promise<any> {
