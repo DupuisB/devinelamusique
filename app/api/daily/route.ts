@@ -99,10 +99,6 @@ function dedupeById<T extends { id: number }>(arr: T[]): T[] {
 }
 
 function startOfDayWithOffset(d: Date, offsetHours = RESET_OFFSET_HOURS) {
-  // We shift the timestamp forward by the offset so the UTC date components
-  // correspond to the local date in the target timezone, compute UTC midnight
-  // for that local date, then shift back to get the UTC timestamp that equals
-  // the local day's start.
   const offsetMs = offsetHours * 3600000
   const shifted = new Date(d.getTime() + offsetMs)
   const y = shifted.getUTCFullYear()

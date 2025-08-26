@@ -167,9 +167,14 @@ function DailyGame() {
     // Ensure source is correct
     if (audio.src !== round.answer.preview) {
       audio.src = round.answer.preview
-      audio.currentTime = 0
-      setPlayhead(0)
     }
+    // Always start the snippet from the beginning to prevent accumulating playhead progress
+    try {
+      audio.currentTime = 0
+    } catch {
+      // Some browsers may throw if the media isn't ready yet; ignore and rely on timeupdate handler
+    }
+    setPlayhead(0)
     // Clean prev handler if any
     if (onTimeHandlerRef.current) {
       audio.removeEventListener('timeupdate', onTimeHandlerRef.current)
@@ -295,8 +300,8 @@ function DailyGame() {
           display: 'grid',
           placeItems: 'center',
           padding: 16,
-          background: round.status === 'won' ? 'linear-gradient(180deg, #143d1b, #0f2f15)' : 'linear-gradient(180deg, #161616, #121212)',
-          border: `1px solid ${round.status === 'won' ? '#2e6b3a' : '#2a2a2a'}`,
+          background: 'linear-gradient(180deg, #161616, #121212)',
+          border: '1px solid #2a2a2a',
           borderRadius: 16,
           boxShadow: '0 8px 32px rgba(0,0,0,0.35)'
         }}>
@@ -320,7 +325,12 @@ function DailyGame() {
                 background: lang === 'fr' ? '#2b3f5a' : '#222',
                 borderColor: lang === 'fr' ? '#4a78b7' : '#333'
               }}
-            >FR</button>
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <img src="/FR.svg" alt="Drapeau français" style={{ width: 20, height: 14, display: 'block', objectFit: 'contain' }} />
+                <span>FR</span>
+              </span>
+            </button>
             <button
               onClick={() => router.push(`?${new URLSearchParams({ n: String(dayNumber), lang: 'en' })}`)}
               style={{
@@ -328,7 +338,12 @@ function DailyGame() {
                 background: lang === 'en' ? '#2b3f5a' : '#222',
                 borderColor: lang === 'en' ? '#4a78b7' : '#333'
               }}
-            >EN</button>
+            >
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <img src="/EN.svg" alt="Drapeau anglais" style={{ width: 20, height: 14, display: 'block', objectFit: 'contain' }} />
+                <span>EN</span>
+              </span>
+            </button>
           </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
           <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{'<' } Jour préc.</button>
@@ -348,8 +363,8 @@ function DailyGame() {
           placeItems: 'center',
           textAlign: 'center',
           padding: 16,
-          background: '#181818',
-          border: '1px solid #333',
+          background: round.status === 'won' ? 'linear-gradient(180deg, #143d1b, #0f2f15)' : '#181818',
+          border: round.status === 'won' ? '1px solid #2e6b3a' : '1px solid #333',
           borderRadius: 16
         }}>
           <div style={{ fontSize: 28, fontWeight: 700 }}>
