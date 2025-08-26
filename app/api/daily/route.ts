@@ -14,6 +14,9 @@ export type Song = {
   cover?: string
   preview: string
   language?: 'fr' | 'en'
+  albumId?: number
+  artistId?: number
+  genre?: string
 }
 
 export async function GET(req: NextRequest) {
@@ -46,6 +49,43 @@ export async function GET(req: NextRequest) {
   // i-th day gets i-th track (wrap if beyond length)
   const idx = ((n - 1) % merged.length + merged.length) % merged.length
   const song = merged[idx]
+  // Enrich selected song with genre and fallback year when possible (single extra API calls only for chosen track)
+  if (song) {
+    try {
+      if (song.albumId) {
+        try {
+          const albumJson = await fetchJsonRetry(`https://api.deezer.com/album/${song.albumId}`)
+          if (!song.year && albumJson?.release_date) {
+            const y = Number(String(albumJson.release_date).slice(0, 4))
+            if (Number.isFinite(y)) song.year = y
+          }
+          const gid = albumJson?.genre_id
+          if (gid) {
+            try {
+              const gjson = await fetchJsonRetry(`https://api.deezer.com/genre/${gid}`)
+              if (gjson?.name) song.genre = gjson.name
+            } catch {
+              // ignore genre lookup errors
+            }
+          }
+        } catch {
+          // ignore album fetch errors
+        }
+      }
+      if (!song.genre && song.artistId) {
+        try {
+          const artistJson = await fetchJsonRetry(`https://api.deezer.com/artist/${song.artistId}`)
+          const gname = artistJson?.genres?.data?.[0]?.name
+          if (gname) song.genre = gname
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // defensive
+    }
+  }
+
   const dateStr = formatDateUTCPlusOffset(dayNumberToDateUTC(n, START_DATE_UTC))
   return json({ song, n, date: dateStr, lang: lang === 'all' ? song.language : lang })
 }
@@ -76,15 +116,22 @@ async function fetchPlaylist(url: string, language: 'fr' | 'en', limit = 300): P
       title: t?.title_short || t?.title,
       artist: t?.artist?.name,
       album: t?.album?.title,
-      year: undefined,
+      year: (() => {
+        const rd = t?.album?.release_date || t?.release_date || ''
+        const y = typeof rd === 'string' && rd.length >= 4 ? Number(rd.slice(0, 4)) : undefined
+        return Number.isFinite(y) ? y : undefined
+      })(),
       length: typeof t?.duration === 'number' ? t.duration : undefined,
       cover: t?.album?.cover_medium || t?.album?.cover,
       preview: t?.preview,
       language,
+      albumId: t?.album?.id,
+      artistId: t?.artist?.id,
     }
     return s
   }).filter((s: Song) => Boolean(s.preview))
 }
+
 
 function dedupeById<T extends { id: number }>(arr: T[]): T[] {
   const seen = new Set<number>()

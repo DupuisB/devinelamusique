@@ -29,3 +29,5 @@ Déploiement sur Render
 Notes
 - Deezer retourne des previews de 30s; on tronque côté client selon la tentative.
 - Ce projet est une démo; vérifiez les conditions d'utilisation de Deezer.
+
+- Faire gaffe aux années / genres (les vieilles musiques sont dans des compils de genre et d'année différente de la vraie)

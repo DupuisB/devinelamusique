@@ -124,7 +124,7 @@ function DailyGame() {
           setRound((r: RoundState) => ({
             ...r,
             attempts: Array.isArray(parsed.attempts) ? parsed.attempts.slice(0, 6) : [],
-            revealIndex: Number.isFinite(parsed.revealIndex) ? Math.min(parsed.revealIndex, 4) : -1,
+            revealIndex: Number.isFinite(parsed.revealIndex) ? Math.min(parsed.revealIndex, 5) : -1,
             snippetIndex: Number.isFinite(parsed.snippetIndex) ? Math.min(parsed.snippetIndex, SNIPPET_SECONDS.length - 1) : 0,
             status: parsed.status === 'won' || parsed.status === 'lost' ? parsed.status : 'idle',
           }))
@@ -207,7 +207,7 @@ function DailyGame() {
       setPlayhead(0)
       return
     }
-  const nextReveal = Math.min(round.revealIndex + 1, 4)
+  const nextReveal = Math.min(round.revealIndex + 1, 5)
   const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
   setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
@@ -223,7 +223,7 @@ function DailyGame() {
     const audio = audioRef.current
   if (audio) audio.pause()
     const nextAttempts = [...round.attempts, '⏭️ Passé']
-  const nextReveal = Math.min(round.revealIndex + 1, 4)
+  const nextReveal = Math.min(round.revealIndex + 1, 5)
   const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
     setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
@@ -239,7 +239,7 @@ function DailyGame() {
     setRound((r: RoundState) => ({
       ...r,
       status: 'lost',
-      revealIndex: 4,
+  revealIndex: 5,
   snippetIndex: SNIPPET_SECONDS.length - 1
     }))
   setPlayhead(0)
@@ -281,10 +281,11 @@ function DailyGame() {
   }
 
   const hintList = [
-    round.answer?.length ? formatDuration(round.answer.length) : '—',
-    round.answer?.year ? String(round.answer?.year) : '—',
-    round.answer?.album || '—',
-    round.answer?.artist || '—',
+  round.answer?.length ? formatDuration(round.answer.length) : '—',
+  round.answer?.genre || '—',
+  round.answer?.year ? String(round.answer?.year) : '—',
+  round.answer?.album || '—',
+  round.answer?.artist || '—',
   ]
 
   return (
@@ -489,7 +490,7 @@ function DailyGame() {
             const visible = i <= round.revealIndex
             return (
               <li key={i} style={{ ...hintItem, opacity: visible ? 1 : 0.3 }}>
-        {['Durée', 'Année', 'Album', 'Artiste'][i]}: {visible ? h : '…'}
+        {['Durée', 'Genre', 'Année', 'Album', 'Artiste'][i]}: {visible ? h : '…'}
               </li>
             )
           })}
