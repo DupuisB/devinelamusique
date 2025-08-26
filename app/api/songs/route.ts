@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
 import { SOURCES, type SourceDef } from '@/lib/sources'
+import { cachedFetch } from '@/lib/cache'
+import { info, warn, error } from '@/lib/logger'
 
 export type Song = {
   id: number
@@ -26,9 +28,14 @@ function detectLanguage(title: string, artist: string): 'fr' | 'en' | 'other' {
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const langFilterParam = (searchParams.get('lang') as 'fr' | 'en' | 'other' | 'all' | null) || 'all'
-
-  // Aggregate from configured sources
-  const agg = await fetchFromSources(SOURCES)
+  // Aggregate from configured sources (cached)
+  let agg
+  try {
+    agg = await cachedFetch('agg:sources', 60 * 10, () => fetchFromSources(SOURCES))
+  } catch (e) {
+    error('failed to aggregate sources', e)
+    agg = { songs: [], langs: [] as Array<'fr'|'en'|'other'>, stats: [] }
+  }
   const allSongs = dedupeById(agg.songs)
 
   const availableLangs = Array.from(new Set(agg.langs)) as Array<'fr' | 'en' | 'other'>

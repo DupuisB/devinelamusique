@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
 import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC } from '@/lib/config'
+import { cachedFetch } from '@/lib/cache'
+import { info, warn, error } from '@/lib/logger'
 
 // Reset offset in hours (UTC+2)
 const RESET_OFFSET_HOURS = 2
@@ -30,17 +32,22 @@ export async function GET(req: NextRequest) {
 
   // Fetch chosen playlist(s)
   let merged: Song[] = []
-  if (lang === 'fr') {
-    merged = await fetchPlaylist(FR_PLAYLIST_URL, 'fr', PLAYLIST_FETCH_LIMIT)
-  } else if (lang === 'en') {
-    merged = await fetchPlaylist(EN_PLAYLIST_URL, 'en', PLAYLIST_FETCH_LIMIT)
-  } else {
-    const [fr, en] = await Promise.all([
-      fetchPlaylist(FR_PLAYLIST_URL, 'fr', PLAYLIST_FETCH_LIMIT),
-      fetchPlaylist(EN_PLAYLIST_URL, 'en', PLAYLIST_FETCH_LIMIT),
-    ])
-    // Keep playlist order stable: FR playlist tracks then EN playlist tracks
-    merged = dedupeById([...fr, ...en])
+  try {
+    if (lang === 'fr') {
+      merged = await cachedFetch(`playlist:fr`, 60 * 30, () => fetchPlaylist(FR_PLAYLIST_URL, 'fr', PLAYLIST_FETCH_LIMIT))
+    } else if (lang === 'en') {
+      merged = await cachedFetch(`playlist:en`, 60 * 30, () => fetchPlaylist(EN_PLAYLIST_URL, 'en', PLAYLIST_FETCH_LIMIT))
+    } else {
+      const [fr, en] = await Promise.all([
+        cachedFetch(`playlist:fr`, 60 * 30, () => fetchPlaylist(FR_PLAYLIST_URL, 'fr', PLAYLIST_FETCH_LIMIT)),
+        cachedFetch(`playlist:en`, 60 * 30, () => fetchPlaylist(EN_PLAYLIST_URL, 'en', PLAYLIST_FETCH_LIMIT)),
+      ])
+      // Keep playlist order stable: FR playlist tracks then EN playlist tracks
+      merged = dedupeById([...fr, ...en])
+    }
+  } catch (e) {
+    error('failed to fetch playlists', e)
+    merged = []
   }
 
   if (merged.length === 0) {
@@ -54,7 +61,7 @@ export async function GET(req: NextRequest) {
     try {
       if (song.albumId) {
         try {
-          const albumJson = await fetchJsonRetry(`https://api.deezer.com/album/${song.albumId}`)
+          const albumJson = await cachedFetch(`album:${song.albumId}`, 60 * 60, () => fetchJsonRetry(`https://api.deezer.com/album/${song.albumId}`))
           if (!song.year && albumJson?.release_date) {
             const y = Number(String(albumJson.release_date).slice(0, 4))
             if (Number.isFinite(y)) song.year = y
@@ -62,23 +69,23 @@ export async function GET(req: NextRequest) {
           const gid = albumJson?.genre_id
           if (gid) {
             try {
-              const gjson = await fetchJsonRetry(`https://api.deezer.com/genre/${gid}`)
+              const gjson = await cachedFetch(`genre:${gid}`, 60 * 60 * 24, () => fetchJsonRetry(`https://api.deezer.com/genre/${gid}`))
               if (gjson?.name) song.genre = gjson.name
             } catch {
               // ignore genre lookup errors
             }
           }
         } catch {
-          // ignore album fetch errors
+          warn(`album fetch failed for ${song.albumId}`)
         }
       }
       if (!song.genre && song.artistId) {
         try {
-          const artistJson = await fetchJsonRetry(`https://api.deezer.com/artist/${song.artistId}`)
+          const artistJson = await cachedFetch(`artist:${song.artistId}`, 60 * 60 * 6, () => fetchJsonRetry(`https://api.deezer.com/artist/${song.artistId}`))
           const gname = artistJson?.genres?.data?.[0]?.name
           if (gname) song.genre = gname
         } catch {
-          // ignore
+          warn(`artist fetch failed for ${song.artistId}`)
         }
       }
     } catch {

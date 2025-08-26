@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import useSnippetPlayer from '@/lib/useSnippetPlayer'
 import useSWR from 'swr'
 import useSWRImmutable from 'swr/immutable'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -49,10 +50,7 @@ function DailyGame() {
 
   const [round, setRound] = useState<RoundState>({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0 })
   const [query, setQuery] = useState('')
-  const audioRef = useRef<HTMLAudioElement>(null)
-  const onTimeHandlerRef = useRef<((e: Event) => void) | null>(null)
-  const [playhead, setPlayhead] = useState(0) // seconds within current snippet
-  const [isPlaying, setIsPlaying] = useState(false)
+  const { audioRef, attachAudio, playSnippet, pause, playhead, isPlaying } = useSnippetPlayer()
   const [notice, setNotice] = useState<string | null>(null)
   const noticeTimerRef = useRef<number | null>(null)
   const loggedSummaryRef = useRef(false)
@@ -68,9 +66,7 @@ function DailyGame() {
     if (daily?.song) {
       setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: daily.song })
       setQuery('')
-      if (audioRef.current) audioRef.current.pause()
-      setPlayhead(0)
-  setIsPlaying(false)
+      if (audioRef.current) try { audioRef.current.pause() } catch {}
     }
   }, [daily?.song])
 
@@ -155,44 +151,9 @@ function DailyGame() {
 
   function togglePlay() {
     if (!round.answer) return
-    const audio = audioRef.current
-    if (!audio) return
     const duration = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
-    // If currently playing, pause
-    if (!audio.paused) {
-      audio.pause()
-      setIsPlaying(false)
-      return
-    }
-    // Ensure source is correct
-    if (audio.src !== round.answer.preview) {
-      audio.src = round.answer.preview
-    }
-    // Always start the snippet from the beginning to prevent accumulating playhead progress
-    try {
-      audio.currentTime = 0
-    } catch {
-      // Some browsers may throw if the media isn't ready yet; ignore and rely on timeupdate handler
-    }
-    setPlayhead(0)
-    // Clean prev handler if any
-    if (onTimeHandlerRef.current) {
-      audio.removeEventListener('timeupdate', onTimeHandlerRef.current)
-    }
-    const onTime = () => {
-      const t = Math.min(audio.currentTime, duration)
-      setPlayhead(t)
-      if (t >= duration) {
-        audio.pause()
-        audio.removeEventListener('timeupdate', onTime)
-        onTimeHandlerRef.current = null
-        setIsPlaying(false)
-      }
-    }
-    onTimeHandlerRef.current = onTime
-    audio.addEventListener('timeupdate', onTime)
-    audio.play()
-    setIsPlaying(true)
+    // playSnippet toggles play/pause if already playing
+    void playSnippet(round.answer.preview, duration)
   }
 
   function submitGuess(guess: Song) {
@@ -201,17 +162,16 @@ function DailyGame() {
     const nextAttempts = [...round.attempts, `${guess.title} — ${guess.artist}`]
     if (correct) {
       setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, status: 'won' }))
-      const audio = audioRef.current
-      if (audio) audio.pause()
-      setIsPlaying(false)
-      setPlayhead(0)
+      pause()
+      if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
       return
     }
   const nextReveal = Math.min(round.revealIndex + 1, 5)
   const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
   setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
-    setPlayhead(0)
+    pause()
+    if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
   }
 
   function normalize(s: string) {
@@ -220,30 +180,28 @@ function DailyGame() {
 
   function skipAttempt() {
     if (!round.answer || round.status === 'won' || round.status === 'lost') return
-    const audio = audioRef.current
-  if (audio) audio.pause()
+  pause()
     const nextAttempts = [...round.attempts, '⏭️ Passé']
   const nextReveal = Math.min(round.revealIndex + 1, 5)
   const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
     setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
-  setPlayhead(0)
-  setIsPlaying(false)
+  if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
+  pause()
   }
 
   function forfeitRound() {
     if (!round.answer || round.status === 'won' || round.status === 'lost') return
     // Reveal everything and mark as lost
-    const audio = audioRef.current
-    if (audio) audio.pause()
+    pause()
     setRound((r: RoundState) => ({
       ...r,
       status: 'lost',
   revealIndex: 5,
   snippetIndex: SNIPPET_SECONDS.length - 1
     }))
-  setPlayhead(0)
-  setIsPlaying(false)
+  if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
+  pause()
   }
 
   function resetRound() {
@@ -251,9 +209,8 @@ function DailyGame() {
     // Reset attempts for the same daily song
     setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: round.answer })
     setQuery('')
-    if (audioRef.current) audioRef.current.pause()
-    setPlayhead(0)
-  setIsPlaying(false)
+  pause()
+  if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
   }
 
   function gotoDay(n: number) {
