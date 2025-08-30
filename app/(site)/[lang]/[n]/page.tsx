@@ -405,8 +405,9 @@ function DailyGame() {
       </section>
 
       <section style={{ marginTop: 16 }}>
-        <div style={{ position: 'relative' }}>
+        <div style={{ position: 'relative' }} className="dlm-input-container">
           <input
+            className="dlm-input"
             placeholder={isLoading ? 'Chargement...' : "Tape le titre ou l'artiste"}
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -419,7 +420,7 @@ function DailyGame() {
             style={inputStyle}
           />
           {!!suggestions.length && (
-            <ul style={suggestionsBox}>
+            <ul className="dlm-suggestions" style={suggestionsBox}>
               {suggestions.map(s => (
                 <li key={`${s.id ?? s.title}-${s.artist}`} style={suggestionItem} onClick={() => { setQuery(''); submitGuess(s) }}>
                   {s.title} — <span style={{ opacity: 0.8 }}>{s.artist}</span>
@@ -427,6 +428,25 @@ function DailyGame() {
               ))}
             </ul>
           )}
+
+          {/* Small responsive CSS for the answer/input bar to behave well on mobile */}
+          <style>{`
+            /* Keep the input visible on small screens and respect safe-area */
+            .dlm-input-container { }
+            .dlm-input { box-sizing: border-box; }
+            .dlm-suggestions { box-sizing: border-box; }
+
+            @media (max-width: 600px) {
+              /* Make the input area sticky to bottom so it stays above the on-screen keyboard
+                 while keeping it visually consistent. Add safe-area padding on iOS. */
+              .dlm-input-container { position: sticky; bottom: 12px; z-index: 60; padding-top: 8px; }
+              .dlm-input { padding: 10px 12px !important; font-size: 15px !important; border-radius: 999px !important; }
+              .dlm-suggestions { max-height: 40vh !important; margin-bottom: env(safe-area-inset-bottom); border-radius: 12px !important; }
+              .dlm-suggestions li { padding-top: 10px !important; padding-bottom: 10px !important; }
+              /* Give the page extra bottom padding to avoid content being covered */
+              main { padding-bottom: 18vh; }
+            }
+          `}</style>
         </div>
       </section>
 
