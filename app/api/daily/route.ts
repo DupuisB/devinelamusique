@@ -1,10 +1,9 @@
 import { NextRequest } from 'next/server'
-import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC } from '@/lib/config'
+import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC, RESET_OFFSET_HOURS } from '@/lib/config'
 import { cachedFetch } from '@/lib/cache'
 import { info, warn, error } from '@/lib/logger'
 
-// Reset offset in hours (UTC+2)
-const RESET_OFFSET_HOURS = 2
+// Reset offset in hours (UTC+2) — now sourced from shared config
 
 export type Song = {
   id: number

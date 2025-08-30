@@ -4,10 +4,9 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import useSnippetPlayer from '@/lib/useSnippetPlayer'
 import useSWR from 'swr'
 import useSWRImmutable from 'swr/immutable'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { START_DATE_UTC, SNIPPET_SECONDS, TRACK_LENGTH } from '@/lib/config'
+import { useParams, useRouter } from 'next/navigation'
+import { START_DATE_UTC, SNIPPET_SECONDS, TRACK_LENGTH, RESET_OFFSET_HOURS } from '@/lib/config'
 
-// Avoid static prerender conflicts; this page is client-driven and depends on search params.
 export const dynamic = 'force-dynamic'
 
 export type Song = {
@@ -27,41 +26,36 @@ type RoundState = {
   answer?: Song
   attempts: string[]
   status: 'idle' | 'playing' | 'won' | 'lost'
-  revealIndex: number // how many hints revealed
-  snippetIndex: number // 0..5, controls seconds length
+  revealIndex: number
+  snippetIndex: number
 }
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-type ApiResponse = { songs: Song[]; filters?: { languages?: Array<'fr'|'en'|'other'> } }
 type DailyResponse = { song: Song; n: number; date: string; lang?: 'fr' | 'en' }
 
 function DailyGame() {
   const router = useRouter()
-  const searchParams = useSearchParams()
-  const paramNRaw = searchParams?.get('n')
-  const paramLang = (searchParams?.get('lang') || 'fr').toLowerCase()
-  const lang = (paramLang === 'en' ? 'en' : 'fr') as 'fr' | 'en'
-  const queryParams = new URLSearchParams({ ...(paramNRaw ? { n: String(paramNRaw) } : {}), lang })
-  const { data: daily, isLoading } = useSWR<DailyResponse>(`/api/daily?${queryParams.toString()}`,
+  const params = useParams<{ lang: string; n: string }>()
+  const rawLang = String(params?.lang || 'fr').toLowerCase()
+  const lang = (rawLang === 'en' ? 'en' : 'fr') as 'fr' | 'en'
+  const rawN = String(params?.n || '')
+
+  const { data: daily, isLoading } = useSWR<DailyResponse>(
+    `/api/daily?${new URLSearchParams({ n: rawN, lang })}`,
     fetcher,
     { revalidateOnFocus: false }
   )
 
   const [round, setRound] = useState<RoundState>({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0 })
   const [query, setQuery] = useState('')
-  const { audioRef, attachAudio, playSnippet, pause, playhead, isPlaying } = useSnippetPlayer()
+  const { audioRef, playSnippet, pause, playhead, isPlaying } = useSnippetPlayer()
   const [notice, setNotice] = useState<string | null>(null)
   const noticeTimerRef = useRef<number | null>(null)
-  const loggedSummaryRef = useRef(false)
 
   const dayNumber = daily?.n || dateToDayNumber(new Date())
   const todayN = dateToDayNumber(new Date())
-  const songs = daily?.song ? [daily.song] : []
 
-  // Skip catalogue summary in daily mode
-
-  // Set server-provided daily answer
   useEffect(() => {
     if (daily?.song) {
       setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: daily.song })
@@ -82,18 +76,14 @@ function DailyGame() {
     }, ms)
   }
 
-  // Notify when a new day's puzzle is loaded
   useEffect(() => {
     if (!round.answer) return
-  const msg = `Morceau du jour · #${dayNumber} · ${daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}`
+    const msg = `Morceau du jour · #${dayNumber} · ${daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}`
     showNotice(msg)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [round.answer, dayNumber])
 
-  // Disable local suggestions (avoid leaking the daily answer via local dataset)
-  const localSuggestions: Song[] = []
-
-  const { data: remote, error: remoteErr } = useSWRImmutable(
+  const { data: remote } = useSWRImmutable(
     query.trim().length >= 2 ? `/api/search?${new URLSearchParams({ q: query.trim(), limit: '6' })}` : null,
     fetcher
   )
@@ -108,7 +98,6 @@ function DailyGame() {
   const trackLength = TRACK_LENGTH
   const snippetLimitClamped = Math.min(snippetLimit, trackLength)
 
-  // Persist per-day+lang progress in localStorage
   useEffect(() => {
     if (!round.answer) return
     const key = storageKeyForDay(dayNumber, lang)
@@ -152,7 +141,6 @@ function DailyGame() {
   function togglePlay() {
     if (!round.answer) return
     const duration = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
-    // playSnippet toggles play/pause if already playing
     void playSnippet(round.answer.preview, duration)
   }
 
@@ -166,10 +154,10 @@ function DailyGame() {
       if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
       return
     }
-  const nextReveal = Math.min(round.revealIndex + 1, 5)
-  const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
+    const nextReveal = Math.min(round.revealIndex + 1, 5)
+    const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
-  setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
+    setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
     pause()
     if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
   }
@@ -180,52 +168,46 @@ function DailyGame() {
 
   function skipAttempt() {
     if (!round.answer || round.status === 'won' || round.status === 'lost') return
-  pause()
+    pause()
     const nextAttempts = [...round.attempts, '⏭️ Passé']
-  const nextReveal = Math.min(round.revealIndex + 1, 5)
-  const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
+    const nextReveal = Math.min(round.revealIndex + 1, 5)
+    const nextSnippet = Math.min(round.snippetIndex + 1, SNIPPET_SECONDS.length - 1)
     const lost = nextAttempts.length >= 6
     setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, revealIndex: nextReveal, snippetIndex: nextSnippet, status: lost ? 'lost' : r.status }))
-  if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
-  pause()
+    if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
+    pause()
   }
 
   function forfeitRound() {
     if (!round.answer || round.status === 'won' || round.status === 'lost') return
-    // Reveal everything and mark as lost
     pause()
     setRound((r: RoundState) => ({
       ...r,
       status: 'lost',
-  revealIndex: 5,
-  snippetIndex: SNIPPET_SECONDS.length - 1
+      revealIndex: 5,
+      snippetIndex: SNIPPET_SECONDS.length - 1
     }))
-  if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
-  pause()
+    if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
+    pause()
   }
 
   function resetRound() {
     if (!round.answer) return
-    // Reset attempts for the same daily song
     setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: round.answer })
     setQuery('')
-  pause()
-  if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
+    pause()
+    if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
   }
 
   function gotoDay(n: number) {
     if (n < 1) n = 1
     const clamped = Math.min(n, todayN)
-    const sp = new URLSearchParams()
-    sp.set('n', String(clamped))
-  sp.set('lang', lang)
-  router.push(`?${sp.toString()}`)
+    router.push(`/${lang}/${clamped}`)
   }
 
   function gotoToday() {
     const n = todayN
-  const sp = new URLSearchParams({ n: String(n), lang })
-  router.push(`?${sp.toString()}`)
+    router.push(`/${lang}/${n}`)
   }
 
   function formatDuration(seconds: number) {
@@ -238,11 +220,11 @@ function DailyGame() {
   }
 
   const hintList = [
-  round.answer?.length ? formatDuration(round.answer.length) : '—',
-  round.answer?.genre || '—',
-  round.answer?.year ? String(round.answer?.year) : '—',
-  round.answer?.album || '—',
-  round.answer?.artist || '—',
+    round.answer?.length ? formatDuration(round.answer.length) : '—',
+    round.answer?.genre || '—',
+    round.answer?.year ? String(round.answer?.year) : '—',
+    round.answer?.album || '—',
+    round.answer?.artist || '—',
   ]
 
   return (
@@ -252,7 +234,6 @@ function DailyGame() {
         <div style={noticeStyle}>{notice}</div>
       )}
 
-      {/* Daily header (big number + date) with navigation and language toggle */}
       <section style={{ marginBottom: 12 }}>
         <div style={{
           display: 'grid',
@@ -277,7 +258,7 @@ function DailyGame() {
           }}>{daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}</div>
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button
-              onClick={() => router.push(`?${new URLSearchParams({ n: String(dayNumber), lang: 'fr' })}`)}
+              onClick={() => router.push(`/${'fr'}/${dayNumber}`)}
               style={{
                 ...buttonStyle,
                 background: lang === 'fr' ? '#2b3f5a' : '#222',
@@ -290,7 +271,7 @@ function DailyGame() {
               </span>
             </button>
             <button
-              onClick={() => router.push(`?${new URLSearchParams({ n: String(dayNumber), lang: 'en' })}`)}
+              onClick={() => router.push(`/${'en'}/${dayNumber}`)}
               style={{
                 ...buttonStyle,
                 background: lang === 'en' ? '#2b3f5a' : '#222',
@@ -303,14 +284,13 @@ function DailyGame() {
               </span>
             </button>
           </div>
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
-          <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{'<' } Jour préc.</button>
-          <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>Jour suiv. {'>'}</button>
-          <button onClick={gotoToday} style={buttonStyle}>Aujourd'hui</button>
-          <button onClick={resetRound} style={buttonStyle}>Rejouer</button>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
+            <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{'<' } Jour préc.</button>
+            <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>Jour suiv. {'>'}</button>
+            <button onClick={gotoToday} style={buttonStyle}>Aujourd'hui</button>
+            <button onClick={resetRound} style={buttonStyle}>Rejouer</button>
+          </div>
         </div>
-        </div>
-
       </section>
 
       {(round.status === 'won' || round.status === 'lost') && (
@@ -339,7 +319,6 @@ function DailyGame() {
                 width="100%"
                 height="90"
                 frameBorder="0"
-                // remove non-standard allowTransparency to avoid React warning
                 allow="encrypted-media; clipboard-write"
                 style={{ borderRadius: 12, backgroundColor: 'transparent' }}
               />
@@ -350,38 +329,26 @@ function DailyGame() {
       )}
 
       <section style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-  <button onClick={togglePlay} style={{ ...buttonStyle, fontSize: 18 }}>{isPlaying ? '⏸️ Pause' : "▶️ Écouter l'extrait"}</button>
+        <button onClick={togglePlay} style={{ ...buttonStyle, fontSize: 18 }}>{isPlaying ? '⏸️ Pause' : "▶️ Écouter l'extrait"}</button>
         <button onClick={skipAttempt} style={{ ...buttonStyle }}>⏭️ Passer</button>
         <button onClick={forfeitRound} style={{ ...buttonStyle }}>Abandonner</button>
-  <span style={{ marginLeft: 8, fontSize: 14, opacity: 0.8 }}>({round.attempts.length}/6)</span>
+        <span style={{ marginLeft: 8, fontSize: 14, opacity: 0.8 }}>({round.attempts.length}/6)</span>
         <audio ref={audioRef} preload="none" />
       </section>
 
-      {/* Full track progress bar with snippet window */}
       <section style={{ marginTop: 8 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, opacity: 0.8, marginBottom: 4 }}>
           <span>{formatDuration(0)}</span>
           <span>Extrait: {formatSnippet(snippetLimitClamped)} • Total: {formatDuration(trackLength)}</span>
         </div>
         <div style={{ position: 'relative', height: 12, background: '#1b1b1b', border: '1px solid #333', borderRadius: 999, overflow: 'hidden' }}>
-          {/* Snippet window segment */}
           <div style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${(snippetLimitClamped / trackLength) * 100}%`,
-            background: '#2c3f2f'
+            position: 'absolute', left: 0, top: 0, bottom: 0,
+            width: `${(snippetLimitClamped / trackLength) * 100}%`, background: '#2c3f2f'
           }} />
-          {/* Playback progress within snippet */}
           <div style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: `${(Math.min(playhead, snippetLimitClamped) / trackLength) * 100}%`,
-            background: '#5ac46a',
-            transition: 'width 80ms linear'
+            position: 'absolute', left: 0, top: 0, bottom: 0,
+            width: `${(Math.min(playhead, snippetLimitClamped) / trackLength) * 100}%`, background: '#5ac46a', transition: 'width 80ms linear'
           }} />
         </div>
       </section>
@@ -389,7 +356,7 @@ function DailyGame() {
       <section style={{ marginTop: 16 }}>
         <div style={{ position: 'relative' }}>
           <input
-            placeholder={isLoading ? 'Chargement...' : 'Tape le titre ou l\'artiste'}
+            placeholder={isLoading ? 'Chargement...' : "Tape le titre ou l'artiste"}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -403,7 +370,7 @@ function DailyGame() {
           {!!suggestions.length && (
             <ul style={suggestionsBox}>
               {suggestions.map(s => (
-                 <li key={`${s.title}-${s.artist}`} style={suggestionItem} onClick={() => { setQuery(''); submitGuess(s) }}>
+                <li key={`${s.id ?? s.title}-${s.artist}`} style={suggestionItem} onClick={() => { setQuery(''); submitGuess(s) }}>
                   {s.title} — <span style={{ opacity: 0.8 }}>{s.artist}</span>
                 </li>
               ))}
@@ -419,7 +386,6 @@ function DailyGame() {
             const isSkip = txt === '⏭️ Passé'
             const expected = round.answer ? `${round.answer.title} — ${round.answer.artist}` : ''
             const isFullCorrect = Boolean(txt) && round.answer && normalize(txt!) === normalize(expected)
-            // Try to parse artist from "title — artist" format
             const guessedArtist = txt?.split(' — ')[1]?.trim() || ''
             const hasArtistMatch = Boolean(txt) && !isSkip && round.answer && normalize(guessedArtist) === normalize(round.answer.artist)
             const isWrong = Boolean(txt) && !isSkip && round.answer && !isFullCorrect && !hasArtistMatch
@@ -443,18 +409,23 @@ function DailyGame() {
       <section style={{ marginTop: 16 }}>
         <h3>Indications</h3>
         <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 6 }}>
-      {hintList.map((h, i) => {
+          {['Durée', 'Genre', 'Année', 'Album', 'Artiste'].map((label, i) => {
             const visible = i <= round.revealIndex
+            const h = [
+              round.answer?.length ? formatDuration(round.answer.length) : '—',
+              round.answer?.genre || '—',
+              round.answer?.year ? String(round.answer?.year) : '—',
+              round.answer?.album || '—',
+              round.answer?.artist || '—',
+            ][i]
             return (
               <li key={i} style={{ ...hintItem, opacity: visible ? 1 : 0.3 }}>
-        {['Durée', 'Genre', 'Année', 'Album', 'Artiste'][i]}: {visible ? h : '…'}
+                {label}: {visible ? h : '…'}
               </li>
             )
           })}
         </ul>
       </section>
-
-  {/* Result section moved to top */}
 
       <footer style={{ marginTop: 48, textAlign: 'center', opacity: 0.7 }}>
         Jour #{dayNumber} · {formatDateUTC(dayNumberToDate(dayNumber))} · Utilise l'API Deezer.
@@ -463,7 +434,7 @@ function DailyGame() {
   )
 }
 
-export default function HomePage() {
+export default function Page() {
   return (
     <Suspense fallback={<main style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}><h1 style={{ textAlign: 'center', marginTop: 16 }}>Devine la Musique</h1><div style={{ textAlign: 'center', opacity: 0.7, marginTop: 12 }}>Chargement…</div></main>}>
       <DailyGame />
@@ -471,110 +442,44 @@ export default function HomePage() {
   )
 }
 
+// Metadata is handled by a lightweight head.tsx for now.
+
 const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '12px 14px',
-  borderRadius: 12,
-  border: '1px solid #333',
-  background: '#1a1a1a',
-  color: '#eee',
-  fontSize: 16,
+  width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #333', background: '#1a1a1a', color: '#eee', fontSize: 16,
 }
-
-const buttonStyle: React.CSSProperties = {
-  padding: '10px 14px',
-  borderRadius: 12,
-  border: '1px solid #333',
-  background: '#222',
-  color: '#eee',
-  cursor: 'pointer'
-}
-
-const suggestionsBox: React.CSSProperties = {
-  position: 'absolute',
-  top: '100%',
-  left: 0,
-  right: 0,
-  background: '#1a1a1a',
-  border: '1px solid #333',
-  borderRadius: 12,
-  marginTop: 6,
-  maxHeight: 260,
-  overflowY: 'auto',
-  zIndex: 10,
-}
-
-const suggestionItem: React.CSSProperties = {
-  padding: '10px 12px',
-  borderBottom: '1px solid #222',
-  cursor: 'pointer'
-}
-
-const attemptBox: React.CSSProperties = {
-  border: '1px solid #333',
-  minHeight: 44,
-  borderRadius: 12,
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  background: '#1a1a1a'
-}
-
-const hintItem: React.CSSProperties = {
-  padding: '8px 10px',
-  border: '1px solid #333',
-  borderRadius: 12,
-  background: '#1a1a1a'
-}
-
-const noticeStyle: React.CSSProperties = {
-  position: 'fixed',
-  left: '50%',
-  bottom: 20,
-  transform: 'translateX(-50%)',
-  zIndex: 9999,
-  padding: '10px 16px',
-  borderRadius: 999,
-  border: '1px solid #2a2a2a',
-  background: 'rgba(20, 34, 42, 0.95)',
-  color: '#cfe9f5',
-  boxShadow: '0 8px 24px rgba(0,0,0,0.4)',
-  maxWidth: '90vw',
-  textAlign: 'center',
-  pointerEvents: 'none',
-}
+const buttonStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: 12, border: '1px solid #333', background: '#222', color: '#eee', cursor: 'pointer' }
+const suggestionsBox: React.CSSProperties = { position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, marginTop: 6, maxHeight: 260, overflowY: 'auto', zIndex: 10 }
+const suggestionItem: React.CSSProperties = { padding: '10px 12px', borderBottom: '1px solid #222', cursor: 'pointer' }
+const attemptBox: React.CSSProperties = { border: '1px solid #333', minHeight: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a1a' }
+const hintItem: React.CSSProperties = { padding: '8px 10px', border: '1px solid #333', borderRadius: 12, background: '#1a1a1a' }
+const noticeStyle: React.CSSProperties = { position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 9999, padding: '10px 16px', borderRadius: 999, border: '1px solid #2a2a2a', background: 'rgba(20, 34, 42, 0.95)', color: '#cfe9f5', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', maxWidth: '90vw', textAlign: 'center', pointerEvents: 'none' }
 
 // ===== Daily utilities =====
 const ORIGIN_UTC = new Date(START_DATE_UTC + 'T00:00:00Z')
-
 function startOfDayUTC(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()))
+  const offsetMs = RESET_OFFSET_HOURS * 3600000
+  const shifted = new Date(d.getTime() + offsetMs)
+  const y = shifted.getUTCFullYear()
+  const m = shifted.getUTCMonth()
+  const day = shifted.getUTCDate()
+  const ms = Date.UTC(y, m, day) - offsetMs
+  return new Date(ms)
 }
-
 function dateToDayNumber(d: Date): number {
   const date = startOfDayUTC(d)
   const ms = date.getTime() - ORIGIN_UTC.getTime()
   return Math.floor(ms / 86400000) + 1
 }
-
 function dayNumberToDate(n: number): Date {
   const ms = (n - 1) * 86400000
   return new Date(ORIGIN_UTC.getTime() + ms)
 }
-
 function formatDateUTC(d: Date): string {
   const y = d.getUTCFullYear()
   const m = String(d.getUTCMonth() + 1).padStart(2, '0')
   const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-
-function isValidISODate(s: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false
-  const d = new Date(s + 'T00:00:00Z')
-  return !isNaN(d.getTime())
-}
-
 function storageKeyForDay(n: number, lang: 'fr' | 'en') {
   return `dlm_daily_${lang}_${n}`
 }
