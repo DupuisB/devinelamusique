@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server'
 import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, RAP_EN_PLAYLIST_URL, RAP_FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC, RESET_OFFSET_HOURS } from '@/lib/config'
-import { cachedFetch } from '@/lib/cache'
+import { cachedFetch, updatePersistentKeys } from '@/lib/cache'
 import { info, warn, error } from '@/lib/logger'
 
 // Reset offset in hours (UTC+2) — now sourced from shared config
@@ -31,16 +31,24 @@ export async function GET(req: NextRequest) {
   const genreParam = (searchParams.get('genre') || 'all').toLowerCase()
   const genre: 'all' | 'rap' = genreParam === 'rap' ? 'rap' : 'all'
 
+  // Update persistent keys for the last 3 days
+  const dayKeys = [0, 1, 2].map((offset) => {
+    const date = dayNumberToDateUTC(todayN - offset, START_DATE_UTC)
+    return `playlist:${genre}:${lang}:${formatDateUTCPlusOffset(date)}`
+  })
+  updatePersistentKeys(dayKeys)
+
   // Fetch chosen playlist(s)
   let merged: Song[] = []
   try {
     const pick = async (which: 'fr' | 'en') => {
+      const cacheKey = `playlist:${genre}:${which}:${formatDateUTCPlusOffset(dayNumberToDateUTC(n, START_DATE_UTC))}`
       if (which === 'fr') {
         const url = genre === 'rap' ? RAP_FR_PLAYLIST_URL : FR_PLAYLIST_URL
-        return cachedFetch(`playlist:${genre}:fr`, 60 * 30, () => fetchPlaylist(url, 'fr', PLAYLIST_FETCH_LIMIT))
+        return cachedFetch(cacheKey, 60 * 30, () => fetchPlaylist(url, 'fr', PLAYLIST_FETCH_LIMIT), dayKeys.includes(cacheKey))
       } else {
         const url = genre === 'rap' ? RAP_EN_PLAYLIST_URL : EN_PLAYLIST_URL
-        return cachedFetch(`playlist:${genre}:en`, 60 * 30, () => fetchPlaylist(url, 'en', PLAYLIST_FETCH_LIMIT))
+        return cachedFetch(cacheKey, 60 * 30, () => fetchPlaylist(url, 'en', PLAYLIST_FETCH_LIMIT), dayKeys.includes(cacheKey))
       }
     }
 
@@ -145,7 +153,6 @@ async function fetchPlaylist(url: string, language: 'fr' | 'en', limit = 300): P
     return s
   }).filter((s: Song) => Boolean(s.preview))
 }
-
 
 function dedupeById<T extends { id: number }>(arr: T[]): T[] {
   const seen = new Set<number>()

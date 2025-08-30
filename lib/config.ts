@@ -18,5 +18,5 @@ export const PLAYLIST_FETCH_LIMIT = 500
 export const RESET_OFFSET_HOURS = 2
 
 // Snippet playback durations per attempt (seconds). Must have 6 entries.
-export const SNIPPET_SECONDS: number[] = [0.2, 1, 2, 4, 8, 15]
+export const SNIPPET_SECONDS: number[] = [0.2, 1, 2.5, 4.5, 8, 15]
 export const TRACK_LENGTH = 15
