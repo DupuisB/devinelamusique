@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server'
-import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC, RESET_OFFSET_HOURS } from '@/lib/config'
+import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, RAP_EN_PLAYLIST_URL, RAP_FR_PLAYLIST_URL, PLAYLIST_FETCH_LIMIT, START_DATE_UTC, RESET_OFFSET_HOURS } from '@/lib/config'
 import { cachedFetch } from '@/lib/cache'
 import { info, warn, error } from '@/lib/logger'
 
@@ -28,20 +28,28 @@ export async function GET(req: NextRequest) {
   const n = Number.isFinite(nParam) && nParam > 0 ? Math.min(nParam, todayN) : todayN
   const langParam = (searchParams.get('lang') || 'fr').toLowerCase()
   const lang: 'fr' | 'en' | 'all' = langParam === 'en' ? 'en' : (langParam === 'all' ? 'all' : 'fr')
+  const genreParam = (searchParams.get('genre') || 'all').toLowerCase()
+  const genre: 'all' | 'rap' = genreParam === 'rap' ? 'rap' : 'all'
 
   // Fetch chosen playlist(s)
   let merged: Song[] = []
   try {
+    const pick = async (which: 'fr' | 'en') => {
+      if (which === 'fr') {
+        const url = genre === 'rap' ? RAP_FR_PLAYLIST_URL : FR_PLAYLIST_URL
+        return cachedFetch(`playlist:${genre}:fr`, 60 * 30, () => fetchPlaylist(url, 'fr', PLAYLIST_FETCH_LIMIT))
+      } else {
+        const url = genre === 'rap' ? RAP_EN_PLAYLIST_URL : EN_PLAYLIST_URL
+        return cachedFetch(`playlist:${genre}:en`, 60 * 30, () => fetchPlaylist(url, 'en', PLAYLIST_FETCH_LIMIT))
+      }
+    }
+
     if (lang === 'fr') {
-      merged = await cachedFetch(`playlist:fr`, 60 * 30, () => fetchPlaylist(FR_PLAYLIST_URL, 'fr', PLAYLIST_FETCH_LIMIT))
+      merged = await pick('fr')
     } else if (lang === 'en') {
-      merged = await cachedFetch(`playlist:en`, 60 * 30, () => fetchPlaylist(EN_PLAYLIST_URL, 'en', PLAYLIST_FETCH_LIMIT))
+      merged = await pick('en')
     } else {
-      const [fr, en] = await Promise.all([
-        cachedFetch(`playlist:fr`, 60 * 30, () => fetchPlaylist(FR_PLAYLIST_URL, 'fr', PLAYLIST_FETCH_LIMIT)),
-        cachedFetch(`playlist:en`, 60 * 30, () => fetchPlaylist(EN_PLAYLIST_URL, 'en', PLAYLIST_FETCH_LIMIT)),
-      ])
-      // Keep playlist order stable: FR playlist tracks then EN playlist tracks
+      const [fr, en] = await Promise.all([pick('fr'), pick('en')])
       merged = dedupeById([...fr, ...en])
     }
   } catch (e) {
@@ -93,7 +101,7 @@ export async function GET(req: NextRequest) {
   }
 
   const dateStr = formatDateUTCPlusOffset(dayNumberToDateUTC(n, START_DATE_UTC))
-  return json({ song, n, date: dateStr, lang: lang === 'all' ? song.language : lang })
+  return json({ song, n, date: dateStr, lang: lang === 'all' ? song.language : lang, genre })
 }
 
 function json(obj: any, status = 200) {

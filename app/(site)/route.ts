@@ -24,5 +24,7 @@ export async function GET(request: Request) {
 	const today = dateToDayNumber(new Date())
 	const langParam = url.searchParams.get('lang') || 'fr'
 	const lang = langParam === 'en' ? 'en' : 'fr'
-	return NextResponse.redirect(new URL(`/${lang}/${today}`, url.origin), 308)
+	const genre = (url.searchParams.get('genre') || '').toLowerCase() === 'rap' ? 'rap' : 'all'
+	const qp = genre === 'all' ? '' : `?genre=${genre}`
+	return NextResponse.redirect(new URL(`/${lang}/${today}${qp}`, url.origin), 308)
 }

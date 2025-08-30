@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import useSnippetPlayer from '@/lib/useSnippetPlayer'
 import useSWR from 'swr'
 import useSWRImmutable from 'swr/immutable'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { START_DATE_UTC, SNIPPET_SECONDS, TRACK_LENGTH, RESET_OFFSET_HOURS } from '@/lib/config'
 
 export const dynamic = 'force-dynamic'
@@ -32,17 +32,30 @@ type RoundState = {
 
 const fetcher = (url: string) => fetch(url).then(r => r.json())
 
-type DailyResponse = { song: Song; n: number; date: string; lang?: 'fr' | 'en' }
+type DailyResponse = { song: Song; n: number; date: string; lang?: 'fr' | 'en'; genre?: 'all' | 'rap' }
 
 function DailyGame() {
   const router = useRouter()
   const params = useParams<{ lang: string; n: string }>()
+  const searchParams = useSearchParams()
   const rawLang = String(params?.lang || 'fr').toLowerCase()
   const lang = (rawLang === 'en' ? 'en' : 'fr') as 'fr' | 'en'
   const rawN = String(params?.n || '')
 
+  // Genre preference: read from URL (?genre=rap) else localStorage; default 'all'
+  const initialGenre = ((): 'all' | 'rap' => {
+    const qp = (searchParams?.get('genre') || '').toLowerCase()
+    if (qp === 'rap') return 'rap'
+    try {
+      const saved = localStorage.getItem('dlm_pref_genre')
+      if (saved === 'rap' || saved === 'all') return saved
+    } catch {}
+    return 'all'
+  })()
+  const [genre, setGenre] = useState<'all' | 'rap'>(initialGenre)
+
   const { data: daily, isLoading } = useSWR<DailyResponse>(
-    `/api/daily?${new URLSearchParams({ n: rawN, lang })}`,
+    `/api/daily?${new URLSearchParams({ n: rawN, lang, genre })}`,
     fetcher,
     { revalidateOnFocus: false }
   )
@@ -55,6 +68,23 @@ function DailyGame() {
 
   const dayNumber = daily?.n || dateToDayNumber(new Date())
   const todayN = dateToDayNumber(new Date())
+
+  // Persist genre preference
+  useEffect(() => {
+    try { localStorage.setItem('dlm_pref_genre', genre) } catch {}
+  }, [genre])
+
+  // Keep URL query in sync with genre (for sharing/back button)
+  useEffect(() => {
+    const current = (searchParams?.get('genre') || 'all').toLowerCase()
+    if (current === genre) return
+    const qp = new URLSearchParams(searchParams?.toString() || '')
+    if (genre === 'all') qp.delete('genre')
+    else qp.set('genre', genre)
+    const qs = qp.toString()
+    router.replace(`/${lang}/${dayNumber}${qs ? `?${qs}` : ''}`)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [genre, lang, dayNumber])
 
   useEffect(() => {
     if (daily?.song) {
@@ -100,7 +130,7 @@ function DailyGame() {
 
   useEffect(() => {
     if (!round.answer) return
-    const key = storageKeyForDay(dayNumber, lang)
+    const key = storageKeyForDay(dayNumber, lang, genre)
     try {
       const raw = localStorage.getItem(key)
       if (raw) {
@@ -119,11 +149,11 @@ function DailyGame() {
       // ignore
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round.answer?.id, dayNumber])
+  }, [round.answer?.id, dayNumber, genre])
 
   useEffect(() => {
     if (!round.answer) return
-    const key = storageKeyForDay(dayNumber, lang)
+    const key = storageKeyForDay(dayNumber, lang, genre)
     try {
       const payload = {
         answerId: round.answer.id,
@@ -136,7 +166,7 @@ function DailyGame() {
     } catch {
       // ignore
     }
-  }, [round.answer?.id, round.attempts, round.revealIndex, round.snippetIndex, round.status, dayNumber, lang])
+  }, [round.answer?.id, round.attempts, round.revealIndex, round.snippetIndex, round.status, dayNumber, lang, genre])
 
   function togglePlay() {
     if (!round.answer) return
@@ -202,12 +232,14 @@ function DailyGame() {
   function gotoDay(n: number) {
     if (n < 1) n = 1
     const clamped = Math.min(n, todayN)
-    router.push(`/${lang}/${clamped}`)
+  const qs = genre === 'all' ? '' : `?genre=${genre}`
+  router.push(`/${lang}/${clamped}${qs}`)
   }
 
   function gotoToday() {
     const n = todayN
-    router.push(`/${lang}/${n}`)
+  const qs = genre === 'all' ? '' : `?genre=${genre}`
+  router.push(`/${lang}/${n}${qs}`)
   }
 
   function formatDuration(seconds: number) {
@@ -256,9 +288,28 @@ function DailyGame() {
             fontSize: 'clamp(14px, 2.5vw, 22px)',
             opacity: 0.9
           }}>{daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}</div>
-          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button
-              onClick={() => router.push(`/${'fr'}/${dayNumber}`)}
+              onClick={() => { if (genre !== 'all') { pause(); setGenre('all') } }}
+              style={{
+                ...buttonStyle,
+                background: genre === 'all' ? '#2b3f5a' : '#222',
+                borderColor: genre === 'all' ? '#4a78b7' : '#333'
+              }}
+            >Tous</button>
+            <button
+              onClick={() => { if (genre !== 'rap') { pause(); setGenre('rap') } }}
+              style={{
+                ...buttonStyle,
+                background: genre === 'rap' ? '#2b3f5a' : '#222',
+                borderColor: genre === 'rap' ? '#4a78b7' : '#333'
+              }}
+            >Rap</button>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+            
+            <button
+              onClick={() => router.push(`/${'fr'}/${dayNumber}${genre === 'all' ? '' : `?genre=${genre}`}`)}
               style={{
                 ...buttonStyle,
                 background: lang === 'fr' ? '#2b3f5a' : '#222',
@@ -271,7 +322,7 @@ function DailyGame() {
               </span>
             </button>
             <button
-              onClick={() => router.push(`/${'en'}/${dayNumber}`)}
+              onClick={() => router.push(`/${'en'}/${dayNumber}${genre === 'all' ? '' : `?genre=${genre}`}`)}
               style={{
                 ...buttonStyle,
                 background: lang === 'en' ? '#2b3f5a' : '#222',
@@ -480,6 +531,7 @@ function formatDateUTC(d: Date): string {
   const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
-function storageKeyForDay(n: number, lang: 'fr' | 'en') {
-  return `dlm_daily_${lang}_${n}`
+function storageKeyForDay(n: number, lang: 'fr' | 'en', genre: 'all' | 'rap' = 'all') {
+  const g = genre === 'rap' ? 'rap' : 'all'
+  return `dlm_daily_${lang}_${g}_${n}`
 }
