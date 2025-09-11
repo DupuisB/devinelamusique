@@ -1,1 +1,0 @@
-This placeholder file is here to help the editor refresh directory state after deletions. It is safe to remove.
