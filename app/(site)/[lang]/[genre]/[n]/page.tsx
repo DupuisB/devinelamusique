@@ -36,23 +36,21 @@ type DailyResponse = { song: Song; n: number; date: string; lang?: 'fr' | 'en'; 
 
 function DailyGame() {
   const router = useRouter()
-  const params = useParams<{ lang: string; n: string }>()
+  const params = useParams<{ lang: string; genre: string; n: string }>()
   const searchParams = useSearchParams()
   const rawLang = String(params?.lang || 'fr').toLowerCase()
   const lang = (rawLang === 'en' ? 'en' : 'fr') as 'fr' | 'en'
   const rawN = String(params?.n || '')
+  const rawGenre = String(params?.genre || 'all').toLowerCase()
 
-  // Genre preference: read from URL (?genre=rap) else localStorage; default 'all'
-  const initialGenre = ((): 'all' | 'rap' => {
-    const qp = (searchParams?.get('genre') || '').toLowerCase()
-    if (qp === 'rap') return 'rap'
-    try {
-      const saved = localStorage.getItem('dlm_pref_genre')
-      if (saved === 'rap' || saved === 'all') return saved
-    } catch {}
-    return 'all'
-  })()
-  const [genre, setGenre] = useState<'all' | 'rap'>(initialGenre)
+  // Genre from URL path parameter, default 'all'
+  const urlGenre = (rawGenre === 'rap' ? 'rap' : 'all') as 'all' | 'rap'
+  const [genre, setGenre] = useState<'all' | 'rap'>(urlGenre)
+
+  // Update genre state when URL changes
+  useEffect(() => {
+    setGenre(urlGenre)
+  }, [urlGenre])
 
   const { data: daily, isLoading } = useSWR<DailyResponse>(
     `/api/daily?${new URLSearchParams({ n: rawN, lang, genre })}`,
@@ -66,25 +64,24 @@ function DailyGame() {
   const [notice, setNotice] = useState<string | null>(null)
   const noticeTimerRef = useRef<number | null>(null)
 
-  const dayNumber = daily?.n || dateToDayNumber(new Date())
+  // Only use dayNumber from API data, no fallback while loading
+  const dayNumber = daily?.n
   const todayN = dateToDayNumber(new Date())
 
-  // Persist genre preference
-  useEffect(() => {
-    try { localStorage.setItem('dlm_pref_genre', genre) } catch {}
-  }, [genre])
+  const { data: remote } = useSWRImmutable(
+    query.trim().length >= 2 ? `/api/search?${new URLSearchParams({ q: query.trim(), limit: '6' })}` : null,
+    fetcher
+  )
+  type RemoteSuggestion = { id: number; title: string; artist: string }
+  const remoteSuggestions = (remote?.suggestions as RemoteSuggestion[] | undefined) ?? []
 
-  // Keep URL query in sync with genre (for sharing/back button)
-  useEffect(() => {
-    const current = (searchParams?.get('genre') || 'all').toLowerCase()
-    if (current === genre) return
-    const qp = new URLSearchParams(searchParams?.toString() || '')
-    if (genre === 'all') qp.delete('genre')
-    else qp.set('genre', genre)
-    const qs = qp.toString()
-    router.replace(`/${lang}/${dayNumber}${qs ? `?${qs}` : ''}`)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [genre, lang, dayNumber])
+  const suggestions = useMemo<Song[]>(() => {
+    return (remoteSuggestions || []).slice(0, 10).map((r: any) => ({ id: r.id, title: r.title, artist: r.artist, album: '', preview: '', language: undefined }))
+  }, [remoteSuggestions])
+
+  const snippetLimit = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
+  const trackLength = TRACK_LENGTH
+  const snippetLimitClamped = Math.min(snippetLimit, trackLength)
 
   useEffect(() => {
     if (daily?.song) {
@@ -107,29 +104,14 @@ function DailyGame() {
   }
 
   useEffect(() => {
-    if (!round.answer) return
-    const msg = `Morceau du jour · #${dayNumber} · ${daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}`
+    if (!round.answer || !daily?.date) return
+    const msg = `Morceau du jour · #${dayNumber} · ${daily.date}`
     showNotice(msg)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round.answer, dayNumber])
-
-  const { data: remote } = useSWRImmutable(
-    query.trim().length >= 2 ? `/api/search?${new URLSearchParams({ q: query.trim(), limit: '6' })}` : null,
-    fetcher
-  )
-  type RemoteSuggestion = { id: number; title: string; artist: string }
-  const remoteSuggestions = (remote?.suggestions as RemoteSuggestion[] | undefined) ?? []
-
-  const suggestions = useMemo<Song[]>(() => {
-    return (remoteSuggestions || []).slice(0, 10).map((r: any) => ({ id: r.id, title: r.title, artist: r.artist, album: '', preview: '', language: undefined }))
-  }, [remoteSuggestions])
-
-  const snippetLimit = SNIPPET_SECONDS[Math.min(round.snippetIndex, SNIPPET_SECONDS.length - 1)]
-  const trackLength = TRACK_LENGTH
-  const snippetLimitClamped = Math.min(snippetLimit, trackLength)
+  }, [round.answer, dayNumber, daily?.date])
 
   useEffect(() => {
-    if (!round.answer) return
+    if (!round.answer || !dayNumber) return
     const key = storageKeyForDay(dayNumber, lang, genre)
     try {
       const raw = localStorage.getItem(key)
@@ -152,7 +134,7 @@ function DailyGame() {
   }, [round.answer?.id, dayNumber, genre])
 
   useEffect(() => {
-    if (!round.answer) return
+    if (!round.answer || !dayNumber) return
     const key = storageKeyForDay(dayNumber, lang, genre)
     try {
       const payload = {
@@ -167,6 +149,18 @@ function DailyGame() {
       // ignore
     }
   }, [round.answer?.id, round.attempts, round.revealIndex, round.snippetIndex, round.status, dayNumber, lang, genre])
+
+  // Show loading state if we don't have the essential data yet
+  if (isLoading || !daily || dayNumber === undefined) {
+    return (
+      <main style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}>
+        <h1 style={{ textAlign: 'center', marginTop: 16 }}>Devine la Musique</h1>
+        <div style={{ textAlign: 'center', opacity: 0.7, marginTop: 24 }}>
+          Chargement #{rawN}...
+        </div>
+      </main>
+    )
+  }
 
   function togglePlay() {
     if (!round.answer) return
@@ -232,14 +226,12 @@ function DailyGame() {
   function gotoDay(n: number) {
     if (n < 1) n = 1
     const clamped = Math.min(n, todayN)
-  const qs = genre === 'all' ? '' : `?genre=${genre}`
-  router.push(`/${lang}/${clamped}${qs}`)
+    router.push(`/${lang}/${genre}/${clamped}`)
   }
 
   function gotoToday() {
     const n = todayN
-  const qs = genre === 'all' ? '' : `?genre=${genre}`
-  router.push(`/${lang}/${n}${qs}`)
+    router.push(`/${lang}/${genre}/${n}`)
   }
 
   function formatDuration(seconds: number) {
@@ -287,10 +279,10 @@ function DailyGame() {
             marginTop: 6,
             fontSize: 'clamp(14px, 2.5vw, 22px)',
             opacity: 0.9
-          }}>{daily?.date || formatDateUTC(dayNumberToDate(dayNumber))}</div>
-                    <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          }}>{daily.date}</div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button
-              onClick={() => { if (genre !== 'all') { pause(); setGenre('all') } }}
+              onClick={() => { if (genre !== 'all') { pause(); router.push(`/${lang}/all/${dayNumber}`) } }}
               style={{
                 ...buttonStyle,
                 background: genre === 'all' ? '#2b3f5a' : '#222',
@@ -298,7 +290,7 @@ function DailyGame() {
               }}
             >Tous</button>
             <button
-              onClick={() => { if (genre !== 'rap') { pause(); setGenre('rap') } }}
+              onClick={() => { if (genre !== 'rap') { pause(); router.push(`/${lang}/rap/${dayNumber}`) } }}
               style={{
                 ...buttonStyle,
                 background: genre === 'rap' ? '#2b3f5a' : '#222',
@@ -309,7 +301,7 @@ function DailyGame() {
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             
             <button
-              onClick={() => router.push(`/${'fr'}/${dayNumber}${genre === 'all' ? '' : `?genre=${genre}`}`)}
+              onClick={() => router.push(`/fr/${genre}/${dayNumber}`)}
               style={{
                 ...buttonStyle,
                 background: lang === 'fr' ? '#2b3f5a' : '#222',
@@ -322,7 +314,7 @@ function DailyGame() {
               </span>
             </button>
             <button
-              onClick={() => router.push(`/${'en'}/${dayNumber}${genre === 'all' ? '' : `?genre=${genre}`}`)}
+              onClick={() => router.push(`/en/${genre}/${dayNumber}`)}
               style={{
                 ...buttonStyle,
                 background: lang === 'en' ? '#2b3f5a' : '#222',
@@ -499,7 +491,7 @@ function DailyGame() {
       </section>
 
       <footer style={{ marginTop: 48, textAlign: 'center', opacity: 0.7 }}>
-        Jour #{dayNumber} · {formatDateUTC(dayNumberToDate(dayNumber))} · Utilise l'API Deezer.
+        Jour #{dayNumber} · {daily.date} · Utilise l'API Deezer.
       </footer>
     </main>
   )
@@ -540,16 +532,6 @@ function dateToDayNumber(d: Date): number {
   const date = startOfDayUTC(d)
   const ms = date.getTime() - ORIGIN_UTC.getTime()
   return Math.floor(ms / 86400000) + 1
-}
-function dayNumberToDate(n: number): Date {
-  const ms = (n - 1) * 86400000
-  return new Date(ORIGIN_UTC.getTime() + ms)
-}
-function formatDateUTC(d: Date): string {
-  const y = d.getUTCFullYear()
-  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const day = String(d.getUTCDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
 }
 function storageKeyForDay(n: number, lang: 'fr' | 'en', genre: 'all' | 'rap' = 'all') {
   const g = genre === 'rap' ? 'rap' : 'all'
