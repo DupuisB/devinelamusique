@@ -202,27 +202,6 @@ function DailyGame() {
     pause()
   }
 
-  function forfeitRound() {
-    if (!round.answer || round.status === 'won' || round.status === 'lost') return
-    pause()
-    setRound((r: RoundState) => ({
-      ...r,
-      status: 'lost',
-      revealIndex: 5,
-      snippetIndex: SNIPPET_SECONDS.length - 1
-    }))
-    if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
-    pause()
-  }
-
-  function resetRound() {
-    if (!round.answer) return
-    setRound({ attempts: [], status: 'idle', revealIndex: -1, snippetIndex: 0, answer: round.answer })
-    setQuery('')
-    pause()
-    if (audioRef.current) try { audioRef.current.currentTime = 0 } catch {}
-  }
-
   function gotoDay(n: number) {
     if (n < 1) n = 1
     const clamped = Math.min(n, todayN)
@@ -329,9 +308,8 @@ function DailyGame() {
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
             <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{'<' } Jour préc.</button>
-            <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>Jour suiv. {'>'}</button>
             <button onClick={gotoToday} style={buttonStyle}>Aujourd'hui</button>
-            <button onClick={resetRound} style={buttonStyle}>Rejouer</button>
+            <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>Jour suiv. {'>'}</button>
           </div>
         </div>
       </section>
@@ -367,14 +345,12 @@ function DailyGame() {
               />
             </div>
           )}
-          <button onClick={resetRound} style={{ ...buttonStyle, marginTop: 12 }}>Rejouer</button>
         </section>
       )}
 
       <section style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <button onClick={togglePlay} style={{ ...buttonStyle, fontSize: 18 }}>{isPlaying ? '⏸️ Pause' : "▶️ Écouter l'extrait"}</button>
         <button onClick={skipAttempt} style={{ ...buttonStyle }}>⏭️ Passer</button>
-        <button onClick={forfeitRound} style={{ ...buttonStyle }}>Abandonner</button>
         <span style={{ marginLeft: 8, fontSize: 14, opacity: 0.8 }}>({round.attempts.length}/6)</span>
         <audio ref={audioRef} preload="none" />
       </section>
