@@ -47,6 +47,72 @@ function DailyGame() {
   const urlGenre = (rawGenre === 'rap' ? 'rap' : 'all') as 'all' | 'rap'
   const [genre, setGenre] = useState<'all' | 'rap'>(urlGenre)
 
+  // Simple translations map
+  type LangKey = 'fr' | 'en'
+  const translations: Record<LangKey, {
+    title: string
+    loading: string
+    listen: string
+    pause: string
+    skip: string
+    today: string
+    prevDay: string
+    nextDay: string
+    all: string
+    rap: string
+    fr: string
+    en: string
+    placeholder: string
+    won: string
+    lost: string
+    hintLabels: string[]
+    footer: string
+    skipped: string
+  }> = {
+    fr: {
+      title: 'Devine la Musique',
+      loading: 'Chargement',
+      listen: "▶️ Écouter",
+      pause: '⏸️ Pause',
+      skip: '⏭️ Passer',
+      today: "Aujourd'hui",
+      prevDay: '< Jour préc.',
+      nextDay: 'Jour suiv. >',
+      all: 'Tous',
+      rap: 'Rap',
+      fr: 'FR',
+      en: 'EN',
+      placeholder: "Tape le titre ou l'artiste",
+      won: 'Bravo !',
+      lost: 'Raté.',
+      hintLabels: ['Durée', 'Genre', 'Année', 'Album', 'Artiste'],
+      footer: "Jour #{day} · {date} · Utilise l'API Deezer.",
+      skipped: '⏭️ Passé',
+    },
+    en: {
+      title: 'Guess the Song',
+      loading: 'Loading',
+      listen: "▶️ Play",
+      pause: '⏸️ Pause',
+      skip: '⏭️ Skip',
+      today: 'Today',
+      prevDay: '< Prev. day',
+      nextDay: 'Next day >',
+      all: 'All',
+      rap: 'Rap',
+      fr: 'FR',
+      en: 'EN',
+      placeholder: 'Type title or artist',
+      won: 'Well done!',
+      lost: 'Missed.',
+      hintLabels: ['Duration', 'Genre', 'Year', 'Album', 'Artist'],
+      footer: "Day #{day} · {date} · Uses the Deezer API.",
+      skipped: '⏭️ Skipped',
+    }
+  }
+
+  const t = translations[lang as LangKey]
+
   // Update genre state when URL changes
   useEffect(() => {
     setGenre(urlGenre)
@@ -154,9 +220,9 @@ function DailyGame() {
   if (isLoading || !daily || dayNumber === undefined) {
     return (
       <main style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}>
-        <h1 style={{ textAlign: 'center', marginTop: 16 }}>Devine la Musique</h1>
+        <h1 style={{ textAlign: 'center', marginTop: 16 }}>{t.title}</h1>
         <div style={{ textAlign: 'center', opacity: 0.7, marginTop: 24 }}>
-          Chargement #{rawN}...
+          {t.loading} #{rawN}...
         </div>
       </main>
     )
@@ -232,7 +298,7 @@ function DailyGame() {
 
   return (
     <main style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}>
-      <h1 style={{ textAlign: 'center', marginTop: 16 }}>Devine la Musique</h1>
+  <h1 style={{ textAlign: 'center', marginTop: 16 }}>{t.title}</h1>
       {notice && (
         <div style={noticeStyle}>{notice}</div>
       )}
@@ -267,7 +333,7 @@ function DailyGame() {
                 background: genre === 'all' ? '#2b3f5a' : '#222',
                 borderColor: genre === 'all' ? '#4a78b7' : '#333'
               }}
-            >Tous</button>
+            >{t.all}</button>
             <button
               onClick={() => { if (genre !== 'rap') { pause(); router.push(`/${lang}/rap/${dayNumber}`) } }}
               style={{
@@ -275,7 +341,7 @@ function DailyGame() {
                 background: genre === 'rap' ? '#2b3f5a' : '#222',
                 borderColor: genre === 'rap' ? '#4a78b7' : '#333'
               }}
-            >Rap</button>
+            >{t.rap}</button>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             
@@ -289,7 +355,7 @@ function DailyGame() {
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <img src="/FR.svg" alt="Drapeau français" style={{ width: 20, height: 14, display: 'block', objectFit: 'contain' }} />
-                <span>FR</span>
+                <span>{t.fr}</span>
               </span>
             </button>
             <button
@@ -302,14 +368,14 @@ function DailyGame() {
             >
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                 <img src="/EN.svg" alt="Drapeau anglais" style={{ width: 20, height: 14, display: 'block', objectFit: 'contain' }} />
-                <span>EN</span>
+                <span>{t.en}</span>
               </span>
             </button>
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', flexWrap: 'wrap', marginTop: 10 }}>
-            <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{'<' } Jour préc.</button>
-            <button onClick={gotoToday} style={buttonStyle}>Aujourd'hui</button>
-            <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>Jour suiv. {'>'}</button>
+            <button onClick={() => gotoDay(dayNumber - 1)} style={buttonStyle}>{t.prevDay}</button>
+            <button onClick={gotoToday} style={buttonStyle}>{t.today}</button>
+            <button onClick={() => gotoDay(dayNumber + 1)} disabled={dayNumber >= todayN} style={{ ...buttonStyle, opacity: dayNumber >= todayN ? 0.5 : 1 }}>{t.nextDay}</button>
           </div>
         </div>
       </section>
@@ -327,7 +393,7 @@ function DailyGame() {
           borderRadius: 16
         }}>
           <div style={{ fontSize: 28, fontWeight: 700 }}>
-            {round.status === 'won' ? 'Bravo !' : 'Raté.'}
+            {round.status === 'won' ? t.won : t.lost}
           </div>
           <div style={{ fontSize: 18, marginTop: 6 }}>
             C'était: <b>{round.answer?.title}</b> — {round.answer?.artist}
@@ -349,9 +415,11 @@ function DailyGame() {
       )}
 
       <section style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-        <button onClick={togglePlay} style={{ ...buttonStyle, fontSize: 18 }}>{isPlaying ? '⏸️ Pause' : "▶️ Écouter l'extrait"}</button>
-        <button onClick={skipAttempt} style={{ ...buttonStyle }}>⏭️ Passer</button>
-        <span style={{ marginLeft: 8, fontSize: 14, opacity: 0.8 }}>({round.attempts.length}/6)</span>
+  <button onClick={togglePlay} style={{ ...buttonStyle, fontSize: 18 }}>{isPlaying ? t.pause : t.listen}</button>
+  <button onClick={skipAttempt} style={{ ...buttonStyle }}>{t.skip}</button>
+        <div style={{ marginLeft: 8, display: 'flex', alignItems: 'center' }}>
+          <span style={attemptCounterStyle} aria-live="polite" aria-atomic="true">{round.attempts.length}/6</span>
+        </div>
         <audio ref={audioRef} preload="none" />
       </section>
 
@@ -376,7 +444,7 @@ function DailyGame() {
         <div style={{ position: 'relative' }} className="dlm-input-container">
           <input
             className="dlm-input"
-            placeholder={isLoading ? 'Chargement...' : "Tape le titre ou l'artiste"}
+            placeholder={isLoading ? `${t.loading}...` : t.placeholder}
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -422,7 +490,7 @@ function DailyGame() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 8 }}>
           {[...Array(6)].map((_, i) => {
             const txt = round.attempts[i]
-            const isSkip = txt === '⏭️ Passé'
+              const isSkip = txt === t.skipped
             const expected = round.answer ? `${round.answer.title} — ${round.answer.artist}` : ''
             const isFullCorrect = Boolean(txt) && round.answer && normalize(txt!) === normalize(expected)
             const guessedArtist = txt?.split(' — ')[1]?.trim() || ''
@@ -448,7 +516,7 @@ function DailyGame() {
       <section style={{ marginTop: 16 }}>
         <h3>Indications</h3>
         <ul style={{ listStyle: 'none', padding: 0, display: 'grid', gap: 6 }}>
-          {['Durée', 'Genre', 'Année', 'Album', 'Artiste'].map((label, i) => {
+            {t.hintLabels.map((label, i) => {
             const visible = i <= round.revealIndex
             const h = [
               round.answer?.length ? formatDuration(round.answer.length) : '—',
@@ -467,7 +535,7 @@ function DailyGame() {
       </section>
 
       <footer style={{ marginTop: 48, textAlign: 'center', opacity: 0.7 }}>
-        Jour #{dayNumber} · {daily.date} · Utilise l'API Deezer.
+  {t.footer.replace('{day}', String(dayNumber)).replace('{date}', daily.date)}
       </footer>
     </main>
   )
@@ -490,6 +558,7 @@ const buttonStyle: React.CSSProperties = { padding: '10px 14px', borderRadius: 1
 const suggestionsBox: React.CSSProperties = { position: 'absolute', top: '100%', left: 0, right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: 12, marginTop: 6, maxHeight: 260, overflowY: 'auto', zIndex: 10 }
 const suggestionItem: React.CSSProperties = { padding: '10px 12px', borderBottom: '1px solid #222', cursor: 'pointer' }
 const attemptBox: React.CSSProperties = { border: '1px solid #333', minHeight: 44, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#1a1a1a' }
+const attemptCounterStyle: React.CSSProperties = {display: 'inline-block',  padding: '8px 12px',  borderRadius: 999,  background: '#163a22',  color: '#cfe9f5',  fontWeight: 800,  fontSize: 18,  lineHeight: 1,  minWidth: 56,  textAlign: 'center',  boxShadow: '0 4px 12px rgba(0,0,0,0.35)'}
 const hintItem: React.CSSProperties = { padding: '8px 10px', border: '1px solid #333', borderRadius: 12, background: '#1a1a1a' }
 const noticeStyle: React.CSSProperties = { position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 9999, padding: '10px 16px', borderRadius: 999, border: '1px solid #2a2a2a', background: 'rgba(20, 34, 42, 0.95)', color: '#cfe9f5', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', maxWidth: '90vw', textAlign: 'center', pointerEvents: 'none' }
 
