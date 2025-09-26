@@ -43,11 +43,11 @@ function DailyGame() {
   const rawN = String(params?.n || '')
   const rawGenre = String(params?.genre || 'all').toLowerCase()
 
-  // Genre from URL path parameter, default 'all'
+  // Genre from URL (default: all)
   const urlGenre = (rawGenre === 'rap' ? 'rap' : 'all') as 'all' | 'rap'
   const [genre, setGenre] = useState<'all' | 'rap'>(urlGenre)
 
-  // Simple translations map
+  // Small translations map
   type LangKey = 'fr' | 'en'
   const translations: Record<LangKey, {
     title: string
@@ -113,7 +113,7 @@ function DailyGame() {
 
   const t = translations[lang as LangKey]
 
-  // Update genre state when URL changes
+  // Sync genre state on URL change
   useEffect(() => {
     setGenre(urlGenre)
   }, [urlGenre])
@@ -130,7 +130,7 @@ function DailyGame() {
   const [notice, setNotice] = useState<string | null>(null)
   const noticeTimerRef = useRef<number | null>(null)
 
-  // Only use dayNumber from API data, no fallback while loading
+  // Use dayNumber from API; no fallback while loading
   const dayNumber = daily?.n
   const todayN = dateToDayNumber(new Date())
 
@@ -216,7 +216,7 @@ function DailyGame() {
     }
   }, [round.answer?.id, round.attempts, round.revealIndex, round.snippetIndex, round.status, dayNumber, lang, genre])
 
-  // Show loading state if we don't have the essential data yet
+  // Show loading while essential data missing
   if (isLoading || !daily || dayNumber === undefined) {
     return (
       <main style={{ maxWidth: 720, margin: '0 auto', padding: 16 }}>
@@ -237,7 +237,7 @@ function DailyGame() {
   function submitGuess(guess: Song) {
     if (!round.answer || round.status === 'won' || round.status === 'lost') return
     const correct = normalize(guess.title) === normalize(round.answer.title) && normalize(guess.artist) === normalize(round.answer.artist)
-    const nextAttempts = [...round.attempts, `${guess.title} — ${guess.artist}`]
+    const nextAttempts = [...round.attempts, `${guess.title}  ${guess.artist}`]
     if (correct) {
       setRound((r: RoundState) => ({ ...r, attempts: nextAttempts, status: 'won' }))
       pause()
@@ -289,11 +289,11 @@ function DailyGame() {
   }
 
   const hintList = [
-    round.answer?.length ? formatDuration(round.answer.length) : '—',
-    round.answer?.genre || '—',
-    round.answer?.year ? String(round.answer?.year) : '—',
-    round.answer?.album || '—',
-    round.answer?.artist || '—',
+    round.answer?.length ? formatDuration(round.answer.length) : '',
+    round.answer?.genre || '',
+    round.answer?.year ? String(round.answer?.year) : '',
+    round.answer?.album || '',
+    round.answer?.artist || '',
   ]
 
   return (
@@ -396,7 +396,7 @@ function DailyGame() {
             {round.status === 'won' ? t.won : t.lost}
           </div>
           <div style={{ fontSize: 18, marginTop: 6 }}>
-            C'était: <b>{round.answer?.title}</b> — {round.answer?.artist}
+            C'était: <b>{round.answer?.title}</b>  {round.answer?.artist}
           </div>
           {!!round.answer?.id && (
             <div style={{ marginTop: 12, width: '100%', maxWidth: 560 }}>
@@ -459,13 +459,13 @@ function DailyGame() {
             <ul className="dlm-suggestions" style={suggestionsBox}>
               {suggestions.map(s => (
                 <li key={`${s.id ?? s.title}-${s.artist}`} style={suggestionItem} onClick={() => { setQuery(''); submitGuess(s) }}>
-                  {s.title} — <span style={{ opacity: 0.8 }}>{s.artist}</span>
+                  {s.title}  <span style={{ opacity: 0.8 }}>{s.artist}</span>
                 </li>
               ))}
             </ul>
           )}
 
-          {/* Small responsive CSS for the answer/input bar to behave well on mobile */}
+          {/* Small CSS for the input bar on mobile */}
           <style>{`
             /* Keep the input visible on small screens and respect safe-area */
             .dlm-input-container { }
@@ -491,9 +491,9 @@ function DailyGame() {
           {[...Array(6)].map((_, i) => {
             const txt = round.attempts[i]
               const isSkip = txt === t.skipped
-            const expected = round.answer ? `${round.answer.title} — ${round.answer.artist}` : ''
+            const expected = round.answer ? `${round.answer.title}  ${round.answer.artist}` : ''
             const isFullCorrect = Boolean(txt) && round.answer && normalize(txt!) === normalize(expected)
-            const guessedArtist = txt?.split(' — ')[1]?.trim() || ''
+            const guessedArtist = txt?.split('  ')[1]?.trim() || ''
             const hasArtistMatch = Boolean(txt) && !isSkip && round.answer && normalize(guessedArtist) === normalize(round.answer.artist)
             const isWrong = Boolean(txt) && !isSkip && round.answer && !isFullCorrect && !hasArtistMatch
             let style: React.CSSProperties = attemptBox
@@ -519,11 +519,11 @@ function DailyGame() {
             {t.hintLabels.map((label, i) => {
             const visible = i <= round.revealIndex
             const h = [
-              round.answer?.length ? formatDuration(round.answer.length) : '—',
-              round.answer?.genre || '—',
-              round.answer?.year ? String(round.answer?.year) : '—',
-              round.answer?.album || '—',
-              round.answer?.artist || '—',
+              round.answer?.length ? formatDuration(round.answer.length) : '',
+              round.answer?.genre || '',
+              round.answer?.year ? String(round.answer?.year) : '',
+              round.answer?.album || '',
+              round.answer?.artist || '',
             ][i]
             return (
               <li key={i} style={{ ...hintItem, opacity: visible ? 1 : 0.3 }}>
@@ -549,7 +549,7 @@ export default function Page() {
   )
 }
 
-// Metadata is handled by a lightweight head.tsx for now.
+// Metadata is handled by head.tsx for now.
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '12px 14px', borderRadius: 12, border: '1px solid #333', background: '#1a1a1a', color: '#eee', fontSize: 16,
@@ -562,7 +562,8 @@ const attemptCounterStyle: React.CSSProperties = {display: 'inline-block',  padd
 const hintItem: React.CSSProperties = { padding: '8px 10px', border: '1px solid #333', borderRadius: 12, background: '#1a1a1a' }
 const noticeStyle: React.CSSProperties = { position: 'fixed', left: '50%', bottom: 20, transform: 'translateX(-50%)', zIndex: 9999, padding: '10px 16px', borderRadius: 999, border: '1px solid #2a2a2a', background: 'rgba(20, 34, 42, 0.95)', color: '#cfe9f5', boxShadow: '0 8px 24px rgba(0,0,0,0.4)', maxWidth: '90vw', textAlign: 'center', pointerEvents: 'none' }
 
-// ===== Daily utilities =====
+// Date utilities
+
 const ORIGIN_UTC = new Date(START_DATE_UTC + 'T00:00:00Z')
 function startOfDayUTC(d: Date) {
   const offsetMs = RESET_OFFSET_HOURS * 3600000

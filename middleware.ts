@@ -27,25 +27,25 @@ export function middleware(req: NextRequest) {
   const url = new URL(req.url)
   const path = url.pathname
   
-  // Handle root redirect
+  // Root redirect
   if (path === '/') {
     const langParam = url.searchParams.get('lang') || 'fr'
     const lang = langParam === 'en' ? 'en' : 'fr'
     const genre = (url.searchParams.get('genre') || '').toLowerCase() === 'rap' ? 'rap' : 'all'
 
-    // Prefer forwarded host/proto set by proxies (Heroku, Cloudflare, etc.)
+  // Prefer forwarded host/proto from proxies
     const forwardedHost = req.headers.get('x-forwarded-host')
     const host = forwardedHost || req.headers.get('host') || ''
     const proto = req.headers.get('x-forwarded-proto') || req.headers.get('x-forwarded-protocol') || 'https'
 
-    // If host isn't present, use a relative redirect so Next.js resolves it from the current request
+  // If no host, use relative redirect (Next resolves it)
     if (!host) return NextResponse.redirect(`/${lang}/${genre}/${today}`, 308)
 
     const destination = `${proto}://${host}/${lang}/${genre}/${today}`
     return NextResponse.redirect(destination, 308)
   }
 
-  // Handle legacy URLs with genre as query parameter: /fr/123?genre=rap -> /fr/rap/123
+  // Handle legacy URLs with genre qparam: /fr/123?genre=rap -> /fr/rap/123
   const legacyMatch = path.match(/^\/([a-z]{2})\/(\d+)$/)
   if (legacyMatch && url.searchParams.has('genre')) {
     const [, lang, day] = legacyMatch
@@ -61,11 +61,11 @@ export function middleware(req: NextRequest) {
     return NextResponse.redirect(destination, 308)
   }
 
-  // Handle URLs with invalid genre: /fr/invalidgenre/123 -> /fr/all/123
+  // Invalid genre -> redirect to 'all'
   const genreMatch = path.match(/^\/([a-z]{2})\/([^\/]+)\/(\d+)$/)
   if (genreMatch) {
     const [, lang, genre, day] = genreMatch
-    // If genre is not 'rap' or 'all', redirect to 'all'
+  // If not 'rap'/'all', redirect -> 'all'
     if (genre !== 'rap' && genre !== 'all') {
       const forwardedHost = req.headers.get('x-forwarded-host')
       const host = forwardedHost || req.headers.get('host') || ''
@@ -78,6 +78,6 @@ export function middleware(req: NextRequest) {
     }
   }
 
-  // For valid new URLs (like /fr/rap/123), continue normally
+  // Valid new URLs -> continue
   return NextResponse.next()
 }

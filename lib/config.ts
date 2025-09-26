@@ -1,22 +1,16 @@
-// Central app configuration for the daily game
-// You can change these values without touching the code.
+export const START_DATE_UTC = '2025-05-22' // YYYY-MM-DD (UTC)
 
-export const START_DATE_UTC = '2025-05-22' // YYYY-MM-DD (UTC) — day #1
-
-//export const FR_PLAYLIST_URL = 'https://www.deezer.com/fr/playlist/14230090421'
 export const FR_PLAYLIST_URL = 'https://www.deezer.com/en/playlist/14230090421'
 export const EN_PLAYLIST_URL = 'https://www.deezer.com/en/playlist/14251125681'
-
-// Rap-only playlists
 export const RAP_FR_PLAYLIST_URL = 'https://www.deezer.com/en/playlist/14251126501'
 export const RAP_EN_PLAYLIST_URL = 'https://www.deezer.com/en/playlist/14251127061'
 
-// Max tracks to fetch per playlist
+// Max tracks per playlist
 export const PLAYLIST_FETCH_LIMIT = 500
 
-// Daily reset offset (in hours) relative to UTC. Must match the server.
+// Reset offset (h) % UTC
 export const RESET_OFFSET_HOURS = 2
 
-// Snippet playback durations per attempt (seconds). Must have 6 entries.
+// Snippet durations (6 vals req)
 export const SNIPPET_SECONDS: number[] = [0.2, 1, 2.5, 4.5, 8, 15]
 export const TRACK_LENGTH = 15

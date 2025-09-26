@@ -9,7 +9,7 @@ export type SourceDef = {
   limit?: number
 }
 
-// Sources driven by config (no genres)
+// Sources from config (no genres)
 export const SOURCES: SourceDef[] = [
   {
     id: 'playlist-fr',

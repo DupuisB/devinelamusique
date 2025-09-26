@@ -1,7 +1,7 @@
 type CacheEntry = { ts: number; value: any }
 
 const cache = new Map<string, CacheEntry>()
-const persistentKeys = new Set<string>() // Tracks keys for the last 3 days
+const persistentKeys = new Set<string>() // keys persisted for last 3 days
 
 export function cacheSet(key: string, value: any, isPersistent = false) {
   cache.set(key, { ts: Date.now(), value })
@@ -36,16 +36,12 @@ export async function cachedFetch<T>(
 }
 
 export function cacheClear() {
-  // Clear only non-persistent keys
-  for (const key of cache.keys()) {
-    if (!persistentKeys.has(key)) {
-      cache.delete(key)
-    }
-  }
+  // Clear non-persistent only
+  for (const key of cache.keys()) if (!persistentKeys.has(key)) cache.delete(key)
 }
 
 export function updatePersistentKeys(dayKeys: string[]) {
-  // Update persistent keys for the last 3 days
+  // Set keys we want kept (last 3 days)
   persistentKeys.clear()
   dayKeys.forEach((key) => persistentKeys.add(key))
 }

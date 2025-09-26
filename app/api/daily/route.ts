@@ -3,7 +3,7 @@ import { EN_PLAYLIST_URL, FR_PLAYLIST_URL, RAP_EN_PLAYLIST_URL, RAP_FR_PLAYLIST_
 import { cachedFetch, updatePersistentKeys } from '@/lib/cache'
 import { info, warn, error } from '@/lib/logger'
 
-// Reset offset in hours (UTC+2) — now sourced from shared config
+// Reset offset (h) (UTC+offset)  from shared config
 
 export type Song = {
   id: number
@@ -22,7 +22,7 @@ export type Song = {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
-  // day param is 1-based day count since START_DATE_UTC; default to today
+  // day param: 1-based count since START_DATE_UTC; default -> today
   const todayN = dateToDayNumberUTC(new Date(), START_DATE_UTC)
   const nParam = Number(searchParams.get('n') || todayN)
   const n = Number.isFinite(nParam) && nParam > 0 ? Math.min(nParam, todayN) : todayN
@@ -31,14 +31,14 @@ export async function GET(req: NextRequest) {
   const genreParam = (searchParams.get('genre') || 'all').toLowerCase()
   const genre: 'all' | 'rap' = genreParam === 'rap' ? 'rap' : 'all'
 
-  // Update persistent keys for the last 3 days
+  // Update persistent keys for last 3 days
   const dayKeys = [0, 1, 2].map((offset) => {
     const date = dayNumberToDateUTC(todayN - offset, START_DATE_UTC)
     return `playlist:${genre}:${lang}:${formatDateUTCPlusOffset(date)}`
   })
   updatePersistentKeys(dayKeys)
 
-  // Fetch chosen playlist(s)
+  // Fetch playlist(s)
   let merged: Song[] = []
   try {
     const pick = async (which: 'fr' | 'en') => {
@@ -68,10 +68,10 @@ export async function GET(req: NextRequest) {
   if (merged.length === 0) {
     return json({ error: 'No tracks available' }, 500)
   }
-  // i-th day gets i-th track (wrap if beyond length)
+  // i-th day -> i-th track (wrap)
   const idx = ((n - 1) % merged.length + merged.length) % merged.length
   const song = merged[idx]
-  // Enrich selected song with genre and fallback year when possible (single extra API calls only for chosen track)
+  // Enrich chosen song (genre/year) with single extra API calls
   if (song) {
     try {
       if (song.albumId) {

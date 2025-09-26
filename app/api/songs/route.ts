@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   // Apply filters
   const filtered = allSongs.filter((s: Song) => (langFilterParam === 'all' ? true : s.language === langFilterParam))
 
-  // Fairly interleave songs across sources then cap
+  // Interleave songs across sources, then cap
   const MAX = 200
   const buckets = new Map<string, Song[]>()
   for (const s of filtered) {
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     if (!buckets.has(key)) buckets.set(key, [])
     buckets.get(key)!.push(s)
   }
-  // optional: shuffle within each bucket for variety
+  // optional: shuffle each bucket for variety
   for (const arr of buckets.values()) shuffleInPlace(arr)
   const keys = Array.from(buckets.keys())
   const songs: Song[] = []
@@ -79,9 +79,9 @@ async function fetchFromSources(sources: SourceDef[]): Promise<{ songs: Song[]; 
       outLangs.push(src.language)
       stats.push({ id: src.id, language: src.language, fetched: tracks.length, kept: songs.length })
     } catch (e) {
-      // ignore source errors to keep others working
+      // ignore source errors so others keep working
     }
-    // Gentle delay to mitigate Deezer rate limiting across sources
+    // Small delay to reduce Deezer rate-limit hits
     await sleep(350)
   }
   return { songs: outSongs, langs: outLangs, stats }
@@ -94,8 +94,8 @@ async function enrichTracks(tracks: any[], src?: SourceDef): Promise<Song[]> {
     const albumTitle: string = t?.album?.title
     const length: number | undefined = typeof t?.duration === 'number' ? t.duration : undefined
     const preview: string = t?.preview
-    const cover: string | undefined = t?.album?.cover_medium || t?.album?.cover
-    // No album detail enrichment here to avoid extra API calls/rate limits
+  const cover: string | undefined = t?.album?.cover_medium || t?.album?.cover
+  // No album enrichment to avoid extra API calls / rate limits
     return {
       id: t?.id,
       title,
@@ -127,14 +127,14 @@ function dedupeById(songs: Song[]): Song[] {
 }
 
 async function resolveDeezerSource(src: SourceDef): Promise<{ tracks: any[] }> {
-  // Accept API URLs or web URLs and map to API endpoints
+  // Accept web/API URLs -> map to API endpoints
   let apiUrl = src.url
   const mPlaylist = src.url.match(/playlist\/(\d+)/)
   if (mPlaylist) {
     const id = mPlaylist[1]
   const json = await fetchJsonRetry(`https://api.deezer.com/playlist/${id}`)
     let tracks: any[] = json?.tracks?.data || []
-    // Try direct tracks endpoint first if embedded is empty
+    // Try playlist/{id}/tracks if embedded empty
     if (!tracks || tracks.length === 0) {
       try {
     const j1 = await fetchJsonRetry(`https://api.deezer.com/playlist/${id}/tracks?limit=${src.limit || 200}`)
@@ -143,7 +143,7 @@ async function resolveDeezerSource(src: SourceDef): Promise<{ tracks: any[] }> {
         // ignore
       }
     }
-    // Some playlists don’t embed tracks; use the tracklist endpoint
+    // Some playlists don't embed tracks; use tracklist endpoint
     if ((!tracks || tracks.length === 0) && json?.tracklist) {
       try {
         const tlUrl = json.tracklist.includes('limit=') ? json.tracklist : `${json.tracklist}?limit=${src.limit || 200}`
@@ -182,13 +182,13 @@ async function fetchJsonRetry(url: string, init?: RequestInit, tries = 3, backof
       if (res.ok) {
         return await res.json()
       }
-      // Retry on 429 and 5xx
+      // Retry on 429 / 5xx
       if (res.status === 429 || res.status >= 500) {
         await sleep(backoffMs)
         backoffMs *= 2
         continue
       }
-      // Non-retryable
+      // Non-retryable status -> throw
       throw new Error(`HTTP ${res.status} for ${url}`)
     } catch (e) {
       lastErr = e
