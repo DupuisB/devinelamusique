@@ -7,6 +7,8 @@ A daily music-guessing web game. Listen to a short preview, guess the song (titl
 
 ---
 
+## Website
+
 The website is available [here](https://devinelamusique-148b97606f78.herokuapp.com/) (I might change the hosting service and buy a domain later)
 
 ---
