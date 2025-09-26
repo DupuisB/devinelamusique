@@ -1,25 +1,45 @@
-# Devine la Musique
+> **⚠️ Disclaimer: I used AI tools (Copilot / LLMs) heavily during development (way more than usual / expected)** 
+> *(and it's scary how well it works, as my knowledge in React/Next.js is quite limited 🥲)*
 
-Un jeu type "Guess the audio" spécialisé musique FR: écoute un extrait, saisis ta proposition, et découvre des indices à chaque essai.
+# 🎵 Devine la Musique
 
-Fonctionnalités clés
-- Jeu quotidien (Wordle-like) avec # du jour et navigation jours précédents/suivants
-- FR/EN toggle, progression sauvegardée localement par jour et langue
-- Suggestions via recherche Deezer (pas de cache local pour éviter les spoilers)
-- Extrait audio à durée croissante par tentative (configurable dans `lib/config.ts`)
-- Indices: durée → année → album → artiste
+A daily music-guessing web game. Listen to a short preview, guess the song (title + artist). Each failed attempt reveals another hint and a slightly longer audio snippet.
 
-Techniques
-- Next.js 14 (App Router), TypeScript, SWR
-- API routes `/api/daily`, `/api/search`, `/api/songs`
-- Config centralisée dans `lib/config.ts` (date de départ, playlists FR/EN, durées des extraits)
+---
 
-Développement
-- Démarrage: `npm run dev` puis ouvrir http://localhost:3000
-- Build: `npm run build`, Prod: `npm run start`
+The website is available [here](https://devinelamusique-148b97606f78.herokuapp.com/) (I might change the hosting service and buy a domain later)
 
-Notes
-- Deezer retourne des previews de 30s; on tronque côté client selon la tentative.
-- Ce projet est une démo; vérifiez les conditions d'utilisation de Deezer.
+---
 
-- Faire gaffe aux années / genres (les vieilles musiques sont dans des compils de genre et d'année différente de la vraie)
+## Explanation
+
+- Daily game (Wordle-like): one song per day, navigate previous/next days.
+- FR / EN modes, progress saved locally per day & language.
+- Uses Deezer previews + search for suggestions.
+- Config in `lib/config.ts`.
+
+![main](images/screen.png)
+
+---
+
+## Features
+
+- Daily song selection driven by configurable playlists (FR / EN / rap variants).
+- Snippet durations increase per attempt (configurable: `SNIPPET_SECONDS` in `lib/config.ts`).
+- Local per-day save state (localStorage).
+- Search suggestions via the Deezer API (`/api/search`).
+- Small server-side helpers: `/api/daily`, `/api/songs` (aggregation), `/api/search`.
+
+## API Routes
+- `GET /api/daily?n=<day>&lang=<fr|en|all>&genre=<all|rap>` : returns the day's song, index and date.
+- `GET /api/songs?lang=<fr|en|all>` : aggregated songs from configured sources (cached).
+- `GET /api/search?q=<query>&limit=<n>` : search suggestions (Deezer).
+
+---
+
+## Tech stack
+
+- Next.js 14 (App Router)
+- TypeScript
+- React hooks + SWR for client-side data
+- Deezer public API for previews & search
